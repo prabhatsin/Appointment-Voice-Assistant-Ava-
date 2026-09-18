@@ -1,0 +1,13 @@
+
+
+3-day plan
+Day 1 — env/keys set up, standalone tests for Deepgram STT, Deepgram TTS, Gemini LLM each working alone. 
+Then wire them into a minimal LiveKit AgentSession and get an end-to-end voice loop working in the LiveKit
+playground.
+
+Day 2 — turn detection/VAD config, interruption handling, system prompt tuning, basic conversation 
+logging/metrics so you can point at latency per stage (STT latency, LLM latency, TTS latency) — great 
+interview material.
+
+Day 3 — polish, edge cases (silence, no speech, long pauses), write up an architecture explanation/diagram 
+for yourself, stretch to telephony if time allows.

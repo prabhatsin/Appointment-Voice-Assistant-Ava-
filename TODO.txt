@@ -1,0 +1,13 @@
+# Explore and implement RAG (chunking of codes , [like Deepjyoti implemented]  AST parser ),
+This AST parser is implemented by compilers as well 
+
+Explore the Pinned chat "AST_Parser_based_chunking" 
+
+----------------------------------------------------------------------------
+
+# study the architure of Adarsh project and use whatever is left , there ?? to apply here ,
+in our voice project 
+
+-------------------------------------------------------------------------------
+
+# Also add observability regarding the , latency in the whole pipeline 

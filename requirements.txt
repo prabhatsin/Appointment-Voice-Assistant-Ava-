@@ -1,0 +1,6 @@
+python-dotenv
+livekit-plugins-deepgram
+livekit-agents
+livekit-plugins-ai-coustics
+scipy
+sounddevice

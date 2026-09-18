@@ -19,13 +19,12 @@ def listen(duration=5) -> str:
     return response.results.channels[0].alternatives[0].transcript
 
 
-
-
 #TODO: We should change it from the fixed 5 seconds to silence based ,that is it should stop when i stop asking not after 5 seconds
 #! this is VAD(Voice activity detection)
 #  or VAD-based turn detection
 
 #TODO: There is no real time thing happening here currency , its pre-recoreded/RESt endpoint 
+#! Implement Real time streaming part using Websockets
 
 '''
 1.Good catch — no, your current stt.py does not use websockets. It's using Deepgram's pre-recorded/REST 

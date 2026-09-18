@@ -6,10 +6,13 @@ import os
 from agent_core.tool_schema import get_weather_function,fehrenheit_temp
 from agent_core.tools import get_weather,fahrenheit_calculator
 from agent_core.tool_registry import tool_registry
+from agent_core.system_prompt import SYSTEM_PROMPT
 from agent.stt import listen
-
+from agent.tts import speak
 
 load_dotenv()
+
+#TODO: make this a proper agent where , we use write loops in function , and make it in a better structure 
 client=genai.Client()
 messages = []
 while True:
@@ -44,6 +47,7 @@ while True:
                     disable=True
                 ),
                 tools=tools,
+                system_instruction=SYSTEM_PROMPT,
                 thinking_config=types.ThinkingConfig(
                     thinking_level='low'
                 )
@@ -80,6 +84,7 @@ while True:
             continue
         else:
             print("Assistant:", response.text)
+            speak(response.text)
             # Append final model response
             messages.append(response.candidates[0].content)
             # Agent is finished
