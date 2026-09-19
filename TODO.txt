@@ -11,3 +11,11 @@ in our voice project
 -------------------------------------------------------------------------------
 
 # Also add observability regarding the , latency in the whole pipeline 
+
+# Give Your  voice to the assitant , 
+( You need the provider which does that , Elevan labs/ cartesia )
+
+
+Problems to solve , 
+1. Premature cutoffs — fixed VAD silence threshold sometimes cuts off mid-sentence on natural pauses (partial fix: raised SILENCE_FRAMES_TO_STOP; real fix: add semantic end-of-turn checck)
+2. No barge-in — talking while Ava speaks doesn't interrupt her, and audio frames are dropped during that time (fix: asyncio.create_task() instead of await in the loop, to stop losing frames; true interruption is a further stretch goal).

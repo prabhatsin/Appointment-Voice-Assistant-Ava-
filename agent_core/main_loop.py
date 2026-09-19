@@ -2,42 +2,26 @@
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
-import os
-from agent_core.tool_schema import get_weather_function,fehrenheit_temp
-from agent_core.tools import get_weather,fahrenheit_calculator
+from agent_core.tool_schema import (check_availability_function, book_slot_function,cancel_booking_function,
+    reschedule_function)
 from agent_core.tool_registry import tool_registry
 from agent_core.system_prompt import SYSTEM_PROMPT
-from agent.stt import listen
-from agent.tts import speak
 
 load_dotenv()
 
-#TODO: make this a proper agent where , we use write loops in function , and make it in a better structure 
 client=genai.Client()
-messages = []
-while True:
-    input_msg = listen()
-    print("You:",input_msg)
-    # This part handles the silences ,empty input should not go in gemini otherwise it adds error 
-    if not input_msg.strip():
-        print("(didn't catch that, try again)")
-        continue
+booking_tool = types.Tool(function_declarations=[
+    check_availability_function,
+    book_slot_function,
+    cancel_booking_function,
+    reschedule_function,
+])
+tools = [booking_tool]
 
-
-    if input_msg.lower().strip() == "exit":
-        print("Goodbye!")
-        break
+def get_agent_reply(input_msg:str,messages:list)-> str:
     messages.append(
-        types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text=input_msg)
-            ]
-        )
+        types.Content(role="user",parts=[types.Part.from_text(text=input_msg)])
     )
-    weather_tool=types.Tool(function_declarations=[get_weather_function])
-    fahrenheit_tool=types.Tool(function_declarations=[fehrenheit_temp])
-    tools=[weather_tool,fahrenheit_tool]
     while True:
         response=client.models.generate_content(
             model="gemini-3.8-flash",
@@ -48,9 +32,7 @@ while True:
                 ),
                 tools=tools,
                 system_instruction=SYSTEM_PROMPT,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level='low'
-                )
+                thinking_config=types.ThinkingConfig(thinking_level='low')
             )
         )
         parts=response.candidates[0].content.parts
@@ -69,23 +51,13 @@ while True:
             # Step3: Append the functions result
             tool_response = types.Content(
                 role="user",
-                parts=[
-                    types.Part.from_function_response(
-                        name=tool_call.name,
-                        response={
-                            "result": result
-                        }
-                    )
-                ]
+                parts=[types.Part.from_function_response( name=tool_call.name,response={"result": result})]
             )
-            # print("TOOL RESULT:", result)
             messages.append(tool_response)
             # Continue AGENT LOOP
             continue
         else:
-            print("Assistant:", response.text)
-            speak(response.text)
             # Append final model response
             messages.append(response.candidates[0].content)
             # Agent is finished
-            break
+            return response.text

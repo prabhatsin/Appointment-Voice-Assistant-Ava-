@@ -7,6 +7,10 @@ load_dotenv(".env.local")
 client = DeepgramClient()
 SAMPLE_RATE = 16000
 
+
+
+
+
 #!: Explore what exactly this function does , in detail 
 def listen(duration=5) -> str:
     print(f"Recording {duration}s...")
@@ -15,6 +19,12 @@ def listen(duration=5) -> str:
     wav_write("mic_input.wav", SAMPLE_RATE, audio)
 
     with open("mic_input.wav", "rb") as f:
+        response = client.listen.v1.media.transcribe_file(request=f.read(), model="nova-3")
+    return response.results.channels[0].alternatives[0].transcript
+
+
+def transcribe_file(filename: str) -> str:
+    with open(filename, "rb") as f:
         response = client.listen.v1.media.transcribe_file(request=f.read(), model="nova-3")
     return response.results.channels[0].alternatives[0].transcript
 

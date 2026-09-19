@@ -1,36 +1,77 @@
 
-get_weather_function={
-    "name":"get_weather",
-    "description":"Returns the current temperature for the specified city.",
-    "parameters":{
-        "type":"object",
-        "properties":{
-            "city":{
-                  "type":"string",
-                   "description":"The city whose current weather you want to know, e.g. Delhi."
+check_availability_function = {
+    "name": "check_availability",
+    "description": "Returns the list of available appointment time slots for a given date.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "date": {
+                "type": "string",
+                "description": "The date to check availability for, in YYYY-MM-DD format, e.g. 2026-09-20."
             },
-          
         },
-        "required":["city"]
+        "required": ["date"]
+    }
+}
+
+book_slot_function = {
+    "name": "book_slot",
+    "description": "Books an appointment for a given date, time, and name. Fails if the slot is already taken.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "date": {
+                "type": "string",
+                "description": "The date to book, in YYYY-MM-DD format, e.g. 2026-09-20."
+            },
+            "time": {
+                "type": "string",
+                "description": "The time slot to book, in HH:MM 24-hour format, e.g. 15:00."
+            },
+            "name": {
+                "type": "string",
+                "description": "The name of the person the appointment is for."
+            },
+        },
+        "required": ["date", "time", "name"]
+    }
+}
+
+cancel_booking_function = {
+    "name": "cancel_booking",
+    "description": "Cancels an existing appointment using its booking ID.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "booking_id": {
+                "type": "string",
+                "description": "The unique booking ID of the appointment to cancel, e.g. BK0001."
+            },
+        },
+        "required": ["booking_id"]
     }
 }
 
 
-
-fehrenheit_temp={
-    "name":"fahrenheit_calculator",
-    "description":"Returns  temperature in Fahrenheit given temp in degree celsius as input",
-    "parameters":{
-        "type":"object",
-        "properties":{
-            "temperature":{
-                  "type":"integer",
-                   "description":"The temperature in degree celsius."
+reschedule_function = {
+    "name": "reschedule",
+    "description": "Moves an existing appointment to a new date and time.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "booking_id": {
+                "type": "string",
+                "description": "The unique booking ID of the appointment to reschedule, e.g. BK0001."
             },
-          
+            "new_date": {
+                "type": "string",
+                "description": "The new date, in YYYY-MM-DD format."
+            },
+            "new_time": {
+                "type": "string",
+                "description": "The new time slot, in HH:MM 24-hour format."
+            },
         },
-        "required":["temperature"]
+        "required": ["booking_id", "new_date", "new_time"]
     }
 }
-
-

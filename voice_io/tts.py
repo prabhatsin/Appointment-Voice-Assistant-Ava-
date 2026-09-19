@@ -5,8 +5,6 @@ import subprocess
 import re
 
 
-
-
 load_dotenv(".env.local")
 
 client = DeepgramClient()
@@ -17,7 +15,11 @@ def clean_for_speech(text: str) -> str:
 
 def speak(text: str, filename="reply.mp3"):
     text = clean_for_speech(text)
-    response = client.speak.v1.audio.generate(text=text)
+    response = client.speak.v1.audio.generate(
+        text=text,
+        model="aura-2-hera-en"
+
+        )
     with open(filename, "wb") as f:
         for chunk in response:
             f.write(chunk)

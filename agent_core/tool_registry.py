@@ -1,9 +1,11 @@
 
 #! This file contains the ,  mapping of tool call and defined tools(functions)
 
-from agent_core.tools import get_weather,fahrenheit_calculator
+from agent_core.tools import check_availability, book_slot, cancel_booking, reschedule
 
-tool_registry={
-    "get_weather": get_weather,
-    "fahrenheit_calculator": fahrenheit_calculator
+tool_registry = {
+    "check_availability": check_availability,
+    "book_slot": book_slot,
+    "cancel_booking": cancel_booking,
+    "reschedule": reschedule,
 }
