@@ -8,6 +8,8 @@ from voice_io.stt import transcribe_file
 from agent_core.main_loop import get_agent_reply
 from voice_io.tts import speak
 from voice_io.tts import generate_speech
+import time
+
 SILENCE_THRESHOLD = 300
 SILENCE_FRAMES_TO_STOP = 60
 
@@ -63,12 +65,13 @@ async def handle_audio_track(track: rtc.Track,audio_source: rtc.AudioSource):
             silence_count += 1
             buffer.append(frame)
             if silence_count > SILENCE_FRAMES_TO_STOP:
-                await process_utterance(buffer, frame.sample_rate, frame.num_channels,audio_source)
+                user_stopped_at = time.time()
+                await process_utterance(buffer, frame.sample_rate, frame.num_channels,audio_source,user_stopped_at)
                 buffer = []
                 speaking = False
                 silence_count = 0
 
-async def process_utterance(frames, sample_rate, num_channels,audio_source):
+async def process_utterance(frames, sample_rate, num_channels,audio_source,user_stopped_at):
     try:
         filename = "room_input.wav"
         with wave.open(filename, "wb") as wf:
@@ -78,21 +81,32 @@ async def process_utterance(frames, sample_rate, num_channels,audio_source):
             for frame in frames:
                 wf.writeframes(bytes(frame.data))
 
+        stt_start = time.time()
         transcript = transcribe_file(filename)
+        stt_time = time.time() - stt_start
         print("User said:", transcript)
         if not transcript.strip():
             return
-
+        
+        llm_start = time.time()
         reply_text = get_agent_reply(transcript, conversation_history)
+        llm_time = time.time() - llm_start
         print("Ava:", reply_text)
 
         # speak(reply_text)   # currently plays on YOUR local speaker, not the room yet — next step fixes that
         # await asyncio.to_thread(speak, reply_text)
+        tts_start = time.time()
         audio_bytes = generate_speech(reply_text)
+        tts_time = time.time() - tts_start
+
+        total_latency = time.time() - user_stopped_at
+        print(f"STT: {stt_time:.2f}s | LLM: {llm_time:.2f}s | TTS: {tts_time:.2f}s | Total: {total_latency:.2f}s")
         await play_audio_bytes(audio_source, audio_bytes)
     except Exception as e:
         print(f"Error handling utterance :{e}")
 
+
+# Whats this function inside function , ?? 
 def register_audio_handlers(room: rtc.Room,audio_source: rtc.AudioSource):
     @room.on("track_subscribed")
     def on_track_subscribed(track: rtc.Track, publication: rtc.RemoteTrackPublication, participant: rtc.RemoteParticipant):
