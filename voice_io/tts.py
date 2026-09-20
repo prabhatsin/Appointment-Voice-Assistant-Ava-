@@ -26,6 +26,29 @@ def speak(text: str, filename="reply.mp3"):
     subprocess.run(["mpv", filename, "--really-quiet"])
 
 
+def generate_speech(text: str) -> bytes:
+    '''
+    Generates speech audio from text via Deepgram, but returns the 
+    raw audio bytes instead of saving/playing them
+    '''
+    response = client.speak.v1.audio.generate(
+        text=text,
+        encoding="linear16",
+        sample_rate=24000,
+        container="none"  # raw PCM, no file container wrapper
+        )
+    audio_bytes = b"".join(chunk for chunk in response)
+    return audio_bytes
+
+
+
+
+
+
+
+
+
+
 
 #TODO: Read and observe both , 
 

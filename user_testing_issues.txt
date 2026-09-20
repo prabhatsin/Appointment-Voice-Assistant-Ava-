@@ -1,0 +1,2 @@
+1. There is someglitch from the assitaant side when it starts the conversationn ,
+2. When i m ending my coversation and and start again how does it know my prev details 

@@ -4,16 +4,17 @@ import logging
 from dotenv import load_dotenv
 from livekit import rtc
 from transport.token_server import generate_token, ROOM_NAME
-from transport.livekit_session import register_audio_handlers
+from transport.livekit_session import register_audio_handlers,setup_audio_output
+from transport.livekit_session import conversation_history
 load_dotenv(".env.local")
-logging.basicConfig(level=logging.INFO)
 
+logging.basicConfig(level=logging.INFO)
 async def main():
     room = rtc.Room()
-    register_audio_handlers(room)
     @room.on("participant_connected")
     def on_participant_connected(participant: rtc.RemoteParticipant):
         logging.info(f"Participant joined: {participant.identity}")
+        conversation_history.clear()
 
     @room.on("participant_disconnected")
     def on_participant_disconnected(participant: rtc.RemoteParticipant):
@@ -22,6 +23,9 @@ async def main():
     token = generate_token(ROOM_NAME, "ava-agent")
     await room.connect(os.environ["LIVEKIT_URL"], token)
     logging.info(f"Ava connected to room: {room.name}")
+
+    audio_source = await setup_audio_output(room)
+    register_audio_handlers(room, audio_source)
 
     await asyncio.Event().wait()  # keep running
 
