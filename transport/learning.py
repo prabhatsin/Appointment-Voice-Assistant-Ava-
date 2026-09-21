@@ -70,3 +70,26 @@ thinks of a reply, speaks it back — all inside that room.
 
 
 '''
+
+#? Does WebRTC have a built-in this concept of "rooms" ??
+
+
+'''
+No, WebRTC does not have a built-in concept of "rooms".
+
+WebRTC (Web Real-Time Communication) is strictly a peer-to-peer protocol designed to connect two browser
+endpoints directly for audio, video, or data sharing. It doesn't know what a server, a user list, or a room is.
+
+How "Rooms" Actually Work
+
+To create a room-based application (like a video call or chat group), you must build or use a separate
+signaling server (commonly built with WebSockets or a library like Socket.io).
+ 
+->The Server Handles the Room: Your signaling server tracks which users belong to which roomId (e.g., using socket.join('room-123')).
+
+->WebRTC Handles the Media: Once users find each other through the server's room logic, the server exchanges 
+their connection info (SDP offers/answers and ICE candidates), and WebRTC opens a direct peer-to-peer stream
+between them.
+
+
+'''

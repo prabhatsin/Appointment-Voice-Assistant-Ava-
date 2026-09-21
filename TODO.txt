@@ -28,3 +28,10 @@ that time (fix: asyncio.create_task() instead of await in the loop, to stop losi
 true interruption is a further stretch goal).
 
 
+# Must Explore :
+# Context cahcing , prompt caching 
+
+# TERMS TO EXPLORE 
+
+--> CHACHE AWARE streaming
+--> Fast CONFORMERS

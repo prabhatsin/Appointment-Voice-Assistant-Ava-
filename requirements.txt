@@ -4,3 +4,4 @@ livekit-agents
 livekit-plugins-ai-coustics
 scipy
 sounddevice
+silero-vad
