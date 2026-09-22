@@ -4,6 +4,9 @@ from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from dotenv import load_dotenv
 
+print("STT_STREAM FILE LOADED")
+
+
 load_dotenv(".env.local")
 
 SAMPLE_RATE = 16000

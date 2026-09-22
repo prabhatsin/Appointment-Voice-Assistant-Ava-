@@ -33,3 +33,79 @@ if __name__ == "__main__":
     asyncio.run(main())
     
 
+
+
+
+
+
+#! LEARNINGS
+
+'''
+#? 1
+#?-->   " load_dotenv() vs load_dotenv(".env.local") "
+
+Usually you have a .env file:
+So when we write 
+
+load_dotenv()
+
+url = os.getenv("LIVEKIT_URL")
+
+-> So load_dotenv() loads variables from the .env file into the environment.
+--> But when we write load_dotenv(".env.local"), it will refer to this explicit file , alsways 
+
+#?-->   os.getenv() vs os.environ[]
+# url = os.getenv("LIVEKIT_URL")  vs  os.environ["LIVEKIT_URL"]
+
+i) os.getenv("LIVEKIT_URL"),    If it doesn't exist → returns:  None
+
+ii) os.environ["LIVEKIT_URL"] --> If it doesn't exist → raises:  KeyError: 'LIVEKIT_URL'
+
+'''
+
+
+
+#? logging.basicConfig(level=logging.INFO)
+'''
+1. First, what is logging?
+
+Python has a built-in logging module:
+
+import logging
+
+logging.info("Server started")
+logging.warning("Something looks wrong")
+logging.error("Something failed")
+
+Instead of using:
+print("Server started")
+you can use logging, which gives you different severity levels.
+
+
+
+#!  2.What does level=logging.INFO mean?
+
+Python logging has levels roughly like this:
+
+DEBUG       ← most detailed
+INFO
+WARNING
+ERROR
+CRITICAL   ← most severe
+
+When you write:
+
+logging.basicConfig(level=logging.INFO)
+
+you're saying:
+
+"Display INFO and everything above INFO."
+
+So:
+logging.debug("Debug message")       # ❌ won't show
+logging.info("Server started")       # ✅ shows
+logging.warning("Something wrong")  # ✅ shows
+logging.error("Request failed")     # ✅ shows
+logging.critical("System crashed") # ✅ shows
+
+'''

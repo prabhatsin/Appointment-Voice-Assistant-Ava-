@@ -20,6 +20,8 @@ NUM_CHANNELS = 1
 conversation_history = []   # persists across utterances for this session
 
 
+#? Explore Coroutene, Future , Task , ensure_future, create_task
+
 async def setup_audio_output(room: rtc.Room) -> rtc.AudioSource:
     '''Creates an outgoing audio track and publishes it into the room, so Ava can be heard.'''
     source = rtc.AudioSource(SAMPLE_RATE, NUM_CHANNELS)

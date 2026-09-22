@@ -1,0 +1,22 @@
+Key Responsibilities
+Architecture, Not Just Prompts
+Understand model limitations deeply
+Design Training Data Templates
+Build RAG retrieval logic for banking domain
+Deep Configuration - Must have
+Tune ASR Endpointing settings
+Configure VAD thresholds
+Adjust TTS prosody for specific use cases
+Go beyond just setting the language
+Deployment
+Write Python integration code
+Integrate bot into bank's workflow
+Own 'Bot Performance' end-to-end
+Requirements
+3-4 years experience in AI/ML deployment
+Strong Python coding skills
+Understanding of LLM architecture and limitations
+Experience with ASR/TTS systems configuration
+RAG implementation experience
+Client-facing technical communication skills
+Self-directed problem solver

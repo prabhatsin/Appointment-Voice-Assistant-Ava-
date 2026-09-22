@@ -159,11 +159,58 @@ async def cancel_active_turn(active_turn: dict, audio_source: rtc.AudioSource, t
         active_turn["speaker_task"].cancel()
     audio_source.clear_queue()
     await tts.stop()
+
 def register_audio_handlers(room: rtc.Room, audio_source: rtc.AudioSource, tts):
     @room.on("track_subscribed")
     def on_track_subscribed(track: rtc.Track, publication: rtc.RemoteTrackPublication, participant: rtc.RemoteParticipant):
         print(f"Track subscribed: kind={track.kind} from {participant.identity}")
         if track.kind == rtc.TrackKind.KIND_AUDIO:
             asyncio.ensure_future(handle_audio_track(track, audio_source, tts))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
+Notice: this function itself is a regular def, not async def, and you call it without await. Why? Because 
+all it does is register another event handler — same exact pattern as on_participant_connected from before. 
+It doesn't do any real work itself; it just tells room: "whenever a track gets subscribed (meaning: whenever
+ your mic audio arrives, since the guest is publishing their mic track), call on_track_subscribed."
+
+The real work happens later, inside on_track_subscribed, when that event actually fires — and specifically
+in this line:
+
+This is worth pausing on: handle_audio_track is async def, but here it's called without await.
+
+#!Instead, it's wrapped in asyncio.ensure_future(...). 
+This means: "start running this coroutine as an independent, separate background task, don't wait for 
+it to finish, just let it run alongside everything else."
+
+This is different from await (which pauses the current function until the awaited thing finishes)
+#!  ensure_future says "kick this off in parallel, and I'm moving on immediately."
+
+'''
+
 
 

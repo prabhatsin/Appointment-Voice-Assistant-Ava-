@@ -35,3 +35,17 @@ true interruption is a further stretch goal).
 
 --> CHACHE AWARE streaming
 --> Fast CONFORMERS
+
+Read This Open AI Blogpost suggested by Harkeerat Bhai
+https://openai.com/index/continuous-voice-interaction-with-gpt-live/
+
+
+Hiredue Developer
+arnob.bhakta@hiredue.com
+
+Explore: The Pinned chat in claude asyncio_python_understanding
+
+# Explore JEV , (How is it different from other models i.e classical LLM)
+# Try Building a a mini asyncio library byurself  , ...
+
+# Build a MPC urself , MPC server 
