@@ -158,12 +158,96 @@ async def cancel_active_turn(active_turn: dict, audio_source: rtc.AudioSource, t
     audio_source.clear_queue()
     await tts.stop()
 
+
+
+
+
+
+# track: The actual live media stream (audio or video). This is what you read audio from.
+'''
+Why track and publication are separate
+
+A publication exists as soon as the guest publishes, even before you receive anything. The track only exists 
+after you subscribe. So LiveKit keeps them apart: the publication is "this exists and is available", and 
+the track is "the live data is now flowing to you."
+
+'''
+# publication	The listing or description of that track: its name, kind, source (mic or camera), muted state.
+#participant	The person or agent who published it: identity, name, metadata.
+'''
+Why participant matters
+A room can hold many people. The participant tells you whose audio this is, so you can, for example,
+respond only to the guest and ignore other tracks.
+'''
 def register_audio_handlers(room: rtc.Room, audio_source: rtc.AudioSource, tts):
-    @room.on("track_subscribed")
+    # "Track_subscribed :LiveKit fires this specifically when a new audio or video track becomes available to you 
+    # (in your case: when the guest's browser starts sending their mic audio, and your agent — the "subscriber" — gets access to it)."
+    @room.on("track_subscribed") # The below function gets fired when an "track_sbuscribed" event happens 
     def on_track_subscribed(track: rtc.Track, publication: rtc.RemoteTrackPublication, participant: rtc.RemoteParticipant):
         print(f"Track subscribed: kind={track.kind} from {participant.identity}")
+        #A safety check — track_subscribed could theoretically fire for video tracks too
         if track.kind == rtc.TrackKind.KIND_AUDIO:
+
             asyncio.ensure_future(handle_audio_track(track, audio_source, tts))
+            # Why ensure_future and what is it ??
+            #! Ans: look at the livikit_session.py script 
+
+
+#? Why is  on_track_susbscribed defined inside the register_audio_handlers function , ?? 
+
+
+# step1 : What is a callback ?? 
+'''
+A callback is a function you hand to someone else so they can call it later, when something happens.
+
+-> You don't call it yourself.
+-> You pass it, and the other side decides when to run it.
+
+#! Your "on_track_subscribed" is a callback: you gave it to room, and room calls it when the event fires. "Event handler", "listener", and "callback" are mostly the same thing seen from different angles.
+
+'''
+# step2 : Whats a closure , in python , 
+# Ans: Closure is a workaround forn a problem 
+'''
+Closure = a nested function that actually uses the outer function's variables.
+A closure needs two things:
+1.A function defined inside another function (a nested function).
+2.The inner function uses a variable that belongs to the outer function.
+If either is missing, it's not a closure.
+
+# In Summary : the closure is the inner function together with the variables it remembers bundled as one package.
+
+'''
+
+# why need a closure : ??
+
+'''
+#! The problem closure solves is ...
+A closure lets a function carry extra data with it when someone else will call it later.
+When you hand a function to another party (like room), that party decides when to call it and what arguments
+to pass. You can't change that. LiveKit only passes track, publication, and participant, but your handler 
+also needs audio_source and tts. A closure solves this: the function remembers those from where it was 
+defined, so nothing extra has to be passed in.
+
+'''
+
+'''
+# LiveKit itself decides what arguments get passed to your event handler when it calls it.
+# Those three parameters — track, publication, participant — are fixed by LiveKit's event system.
+# When LiveKit calls your handler, it calls it exactly like on_track_subscribed(some_track, some_publication, 
+ some_participant) — you have zero control over that call; LiveKit's internals do it for you, using 
+ whatever arguments it decides to pass.
+# LiveKit doesn't know about your audio_source/tts — it will only ever call this function with the three arguments it provides.
+
+# If you added extra required parameters, calling it would crash with a "missing argument" error, since LiveKit isn't passing them.
+# This is exactly the problem a closure (nested function) solves. Because on_track_subscribed is defined 
+  inside register_audio_handlers, it can still see and use audio_source and tts — not as parameters, but 
+  as variables it "remembers" from the outer function's scope, even though nobody explicitly passes them 
+  in when LiveKit calls it later.
+
+#? A closure lets a function carry extra data with it when someone else will call it later.
+
+'''
 
 
 
@@ -186,6 +270,8 @@ def register_audio_handlers(room: rtc.Room, audio_source: rtc.AudioSource, tts):
 
 
 
+
+#! "when a track becomes available, fire an event called exactly 'track_subscribed'" —Use this exact string ,
 
 
 

@@ -117,6 +117,58 @@ def register_audio_handlers(room: rtc.Room,audio_source: rtc.AudioSource):
             asyncio.ensure_future(handle_audio_track(track,audio_source))
 
 
+#! Why ensure_Future, 
+'''
+handle_audio_track is async def, so now we have options like await, create_task/ensure_future
+
+1.You can't await inside a plain def.( But even if it was a async funtion we would await )
+2. What ensure_future does: it takes that waiting job and hands it to the event loop, saying "run this in 
+the background, when you get a chance." It returns immediately, so the handler finishes right away.
+
+# ? Small notes
+1.asyncio.create_task(...) is the modern, preferred way to do the same thing here. ensure_future works, but create_task is clearer for a coroutine.
+
+In one line: ensure_future starts the async job in the background from a non-async handler, without blocking the event loop.
+'''
+
+#! Can we use create_task under a synchronous code, 
+
+'''
+Yes, but only if an event loop is already running
+
+create_task doesn't care whether the function you call it from is def or async def. It only cares that an 
+event loop is running in that thread right now.
+
+Two cases
+1. Sync function called by the event loop: works.
+Your on_track_subscribed is a plain def, but LiveKit's event loop is what calls it. So a loop is running at 
+that moment, and create_task works fine. This is why your handler can use it.
+
+2. Sync function called from plain top-level code with no loop: fails.
+If you call create_task in a normal script where no loop has started, Python raises RuntimeError: no running
+event loop. The task has nowhere to be scheduled.
+
+#? Both the above statements are true for , create_task and ensure_future as well , with the difference that
+#? ensure_future may not raise the erorr , it may crash silently 
+
+'''
+
+
+
+'''
+
+The handler function itself. Notice it's defined inside register_audio_handlers — this is a nested function
+(a function defined inside another function). Why nested, specifically? Because on_track_subscribed needs 
+access to audio_source and tts — the parameters of the outer function. By defining it inside, it can just 
+use those variables directly (this is called a closure — the inner function "closes over" / remembers the 
+outer function's variables, even after the outer function itself has already finished running). If 
+on_track_subscribed were defined outside, you'd have no clean way to hand it audio_source and tts, 
+since LiveKit itself is the one calling this function later (via the event system) — you don't control 
+what arguments get passed to it; LiveKit decides that (track, publication, participant).
+
+'''
+
+
  
 
 '''
