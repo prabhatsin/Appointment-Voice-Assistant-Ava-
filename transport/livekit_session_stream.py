@@ -15,13 +15,11 @@ VAD_CHUNK_SAMPLES = 512  # required chunk size for 16kHz
 VAD_THRESHOLD = 0.5
 SPEECH_CONFIRM_CHUNKS = 3  # ~96ms of sustained speech before triggering interrupt
 
-
 SAMPLE_RATE = 16000
 TTS_SAMPLE_RATE = 24000
 TTS_NUM_CHANNELS = 1
 
 conversation_history = []
-
 
 async def setup_audio_output(room: rtc.Room) -> rtc.AudioSource:
     source = rtc.AudioSource(TTS_SAMPLE_RATE, TTS_NUM_CHANNELS)
@@ -166,7 +164,6 @@ def register_audio_handlers(room: rtc.Room, audio_source: rtc.AudioSource, tts):
         print(f"Track subscribed: kind={track.kind} from {participant.identity}")
         if track.kind == rtc.TrackKind.KIND_AUDIO:
             asyncio.ensure_future(handle_audio_track(track, audio_source, tts))
-
 
 
 

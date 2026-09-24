@@ -64,6 +64,7 @@ async def main():
     await tts.connect()
     # Actual network connection to Deepgram's TTS server happens
 
+
     audio_source = await setup_audio_output(room)
     # So in one line: this line creates Ava's "voice output pipe" and publishes it to the room, so other 
     # participants can actually hear whatever gets pushed into it later.
@@ -137,7 +138,7 @@ callbacks you've registered per event name. When it sees a "participant_connecte
 looks up "who registered a callback for 'participant_connected'?" and calls those functions itself, passing
 in the participant object
 
-
+#! pubsub/oberver poattern
 -->What @room.on("participant_connected") actually does: it's just registering your function into that 
 internal list, under the key "participant_connected". Think of it like:
 
@@ -145,7 +146,7 @@ room._event_callbacks["participant_connected"].append(on_participant_connected)
 
 (not the literal real code, but that's the concept). You're not calling your function — you're handing it 
 to room, and room calls it later, whenever it internally detects that specific event happened. This is 
-called the observer pattern or pub/sub (publish/subscribe) — extremely common in any library that reacts 
+called the "observer pattern or pub/sub (publish/subscribe)" — extremely common in any library that reacts 
 to real-time events (UI libraries, game engines, network libraries all do this).
 
 '''
@@ -199,6 +200,7 @@ removed : rtc.RemoteParticipant entirely, the code would run exactly the same.
 
 
 '''
+
 This is your entry point / setup script — it doesn't handle any actual conversation logic itself. Its whole job, in order:
 
 1.Create a Room object and register two event handlers (participant_connected, participant_disconnected) — 
@@ -217,7 +219,6 @@ registration)
 
 6.await asyncio.Event().wait() — pause forever, keeping the event loop (and everything running inside it) 
 alive indefinitely
-
 
 
 In one sentence: this file connects to the room, wires up the voice output pipe, and arms the trigger for 
