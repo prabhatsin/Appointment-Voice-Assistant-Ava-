@@ -94,14 +94,12 @@ async def process_transcript(transcript: str, audio_source: rtc.AudioSource, use
 
 async def handle_audio_track(track: rtc.Track, audio_source: rtc.AudioSource, tts):
     client = AsyncDeepgramClient()
-
-    async with client.listen.v2.connect(
-        model="flux-general-en",
-        encoding="linear16",
-        sample_rate=str(SAMPLE_RATE),
+    # Understand this async with properly , whats this and why , ?? 
+    async with client.listen.v2.connect(model="flux-general-en",encoding="linear16",sample_rate=str(SAMPLE_RATE),
     ) as connection:
 
         active_turn = {"process_task": None, "speaker_task": None}
+
         async def on_message(message):
             if message.type == "TurnInfo" and message.event == "EndOfTurn" and message.transcript:
                 user_stopped_at = time.time()
