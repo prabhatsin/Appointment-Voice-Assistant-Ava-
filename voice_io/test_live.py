@@ -1,110 +1,53 @@
-# import asyncio
-# import sounddevice as sd
-# import numpy as np
-# from voice_io.tts_stream import stream_speech
+import asyncio
+from voice_io.stt_stream_final import stt_connect, stt_on_turn_end, send_audio, stt_register_listener, stt_close
+import sounddevice as sd
 
-# SAMPLE_RATE = 24000
+SAMPLE_RATE = 16000
 
-# async def main():
-#     stream = sd.OutputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16")
-#     stream.start()
-
-#     async def on_chunk(data):
-#         samples = np.frombuffer(data, dtype=np.int16)
-#         await asyncio.to_thread(stream.write, samples)
-
-#     await stream_speech("Hello, this is a live test of streaming text to speech, spoken as it is generated.", on_chunk)
-
-#     stream.stop()
-#     stream.close()
-
-# if __name__ == "__main__":
-#     asyncio.run(main())
-
-import math
-import os
-import time
-
-WIDTH = 100
-HEIGHT = 35
+from dotenv import load_dotenv
+load_dotenv(".env.local")
 
 
-def clear_screen():
-    os.system("clear")
+async def on_turn_end(transcript):
+    print("Final transcript:", transcript)
+
+async def main():
+    await stt_connect()
+    stt_on_turn_end(on_turn_end)
+
+    loop = asyncio.get_event_loop()
+    #Gets a reference to the currently running event loop
+
+    def audio_callback(indata, frames, time_info, status):
+        asyncio.run_coroutine_threadsafe(send_audio(indata.tobytes()), loop)
+
+    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", blocksize=1024, callback=audio_callback):
+        print("Speak now (Ctrl+C to stop)")
+        await stt_register_listener()
+
+asyncio.run(main())
 
 
-def make_heart(scale):
-    canvas = [[" " for _ in range(WIDTH)] for _ in range(HEIGHT)]
-
-    # Parametric heart curve
-    points = []
-
-    for i in range(500):
-        t = 2 * math.pi * i / 500
-
-        x = 16 * math.sin(t) ** 3
-        y = (
-            13 * math.cos(t)
-            - 5 * math.cos(2 * t)
-            - 2 * math.cos(3 * t)
-            - math.cos(4 * t)
-        )
-
-        # Stretch/shrink
-        x *= scale
-        y *= scale
-
-        # Terminal coordinate conversion
-        screen_x = int(WIDTH / 2 + x * 2)
-        screen_y = int(HEIGHT / 2 - y * 0.75)
-
-        points.append((screen_x, screen_y))
-
-    # Put "sorry" along the outline
-    word = "sorry_kuchu_puchu"
-    used = set()
-
-    for x, y in points:
-
-        # Don't put words outside terminal
-        if x < 0 or x + len(word) >= WIDTH:
-            continue
-
-        if y < 0 or y >= HEIGHT:
-            continue
-
-        # Prevent words from overlapping too much
-        key = (x // 5, y)
-
-        if key in used:
-            continue
-
-        used.add(key)
-
-        for i, char in enumerate(word):
-            if 0 <= x + i < WIDTH:
-                canvas[y][x + i] = char
-
-    return "\n".join("".join(row) for row in canvas)
 
 
-# Animation
-scale = 1.0
-direction = 1
+'''
+asyncio.run_coroutine_threadsafe(coro, loop) is a built-in Python function used to submit a coroutine to an 
+event loop that is running in a different OS thread.
 
-while True:
+'''
 
-    clear_screen()
+'''
+Putting it together, in one sentence: open the mic on a background thread, continuously bridge captured
+audio chunks into the async world via send_audio, while simultaneously listening for Deepgram's 
+responses — printing live partials and the final transcript once each sentence completes.
+'''
 
-    print(make_heart(scale))
+#! Question why we using here synchronous function for mic audio, ?? 
+'''
+sounddevice is a library built entirely around a traditional, synchronous, thread-based callback model — 
+it has no concept of asyncio at all. Internally, sd.InputStream calls your callback function using plain, 
+synchronous Python function calls
 
-    # Pulse
-    scale += 0.015 * direction
+'''
 
-    if scale >= 1.08:
-        direction = -1
-
-    if scale <= 0.92:
-        direction = 1
-
-    time.sleep(0.05)
+#? Contrast this with LiveKit's rtc.AudioStream in your real pipeline — that one is designed to work with asyncio natively (async for event in audio_stream:), which is exactly why your real forward_audio

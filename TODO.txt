@@ -49,3 +49,7 @@ Explore: The Pinned chat in claude asyncio_python_understanding
 # Try Building a a mini asyncio library byurself  , ...
 
 # Build a MPC urself , MPC server 
+
+# Setup the Adarsh's code , locally , run claudecode on it and understand how latency came  under 1 second,
+
+# read the Intro to MCP by claude , (Bookmarked it)

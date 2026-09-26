@@ -2,7 +2,7 @@ import asyncio
 import time
 import re
 from livekit import rtc
-from deepgram import AsyncDeepgramClient
+from voice_io.stt_stream_final import stt_connect, stt_on_turn_end, send_audio, stt_register_listener, stt_close
 from deepgram.core.events import EventType
 
 from agent_core.main_loop_stream import get_agent_reply_stream
@@ -93,21 +93,18 @@ async def process_transcript(transcript: str, audio_source: rtc.AudioSource, use
 
 
 async def handle_audio_track(track: rtc.Track, audio_source: rtc.AudioSource, tts):
-    client = AsyncDeepgramClient()
-    # Understand this async with properly , whats this and why , ?? 
-    async with client.listen.v2.connect(model="flux-general-en",encoding="linear16",sample_rate=str(SAMPLE_RATE),
-    ) as connection:
+        await stt_connect()
 
         active_turn = {"process_task": None, "speaker_task": None}
 
-        async def on_message(message):
-            if message.type == "TurnInfo" and message.event == "EndOfTurn" and message.transcript:
-                user_stopped_at = time.time()
-                await cancel_active_turn(active_turn, audio_source, tts)
-                active_turn["process_task"] = asyncio.ensure_future(
-                    process_transcript(message.transcript, audio_source, user_stopped_at, tts, active_turn)
-                )
-        connection.on(EventType.MESSAGE, on_message)
+        async def on_turn_end(transcript):
+            user_stopped_at = time.time()
+            await cancel_active_turn(active_turn, audio_source, tts)
+            active_turn["process_task"] = asyncio.ensure_future(
+                process_transcript(transcript, audio_source, user_stopped_at, tts, active_turn)
+            )
+
+        stt_on_turn_end(on_turn_end)
 
         audio_stream = rtc.AudioStream(track, sample_rate=SAMPLE_RATE, num_channels=1)
 
