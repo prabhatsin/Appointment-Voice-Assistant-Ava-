@@ -1,0 +1,1361 @@
+BUILD YOUR OWN REAL-TIME VOICE AGENT: IMPLEMENTATION PLAN
+=========================================================
+
+Stack    : LiveKit (transport) + Deepgram (STT and TTS) + Gemini (LLM)
+Scope    : ONE agent in ONE conversation per session. No multi-agent bus.
+Goal     : Sub-second latency from "user stops speaking" to "agent audio
+           starts", with clean barge-in (the user can interrupt).
+Approach : Build a small frame-based pipeline engine first, then plug in
+           each vendor one at a time, testing after every step.
+
+This plan tells you WHAT to build, in WHAT ORDER, HOW the pieces connect,
+and HOW TO KNOW each piece works before moving on. It deliberately gives
+responsibilities, interfaces and rules instead of finished code, so you
+write every line yourself.
+
+Companion files in this folder:
+  pipecat_architecture.html       diagrams of the reference design
+  pipecat_design_philosophy.txt   the principles behind it
+  pipecat_what_is_a_frame.txt     what "frame" means
+  pipecat_latency_notes.md        latency mechanisms in Pipecat
+
+
+======================================================================
+TABLE OF CONTENTS
+======================================================================
+
+  PART A  The mental model you are implementing
+  PART B  Ground rules for your codebase
+  PART C  Project layout
+  PART D  The build, phase by phase
+            Phase 0   Environment, accounts, tooling
+            Phase 1   Frames
+            Phase 2   The Processor base class        (the heart)
+            Phase 3   Pipeline and Session (runner)
+            Phase 4   Observability, built early
+            Phase 5   Audio utilities
+            Phase 6   LiveKit transport (input + output)
+            Phase 7   VAD (voice activity detection)
+            Phase 8   Deepgram STT service
+            Phase 9   Conversation context
+            Phase 10  User turn manager + user aggregator
+            Phase 11  Gemini LLM service
+            Phase 12  Sentence aggregator + Deepgram TTS service
+            Phase 13  Assistant aggregator
+            Phase 14  First full end-to-end bot
+            Phase 15  Interruption hardening
+            Phase 16  Latency measurement and optimisation
+            Phase 17  Function calling (tools)
+            Phase 18  Robustness and shutdown
+            Phase 19  Testing strategy (runs through all phases)
+            Phase 20  Deployment basics
+  PART E  Final wiring diagram
+  PART F  Dependency order at a glance
+  PART G  Pitfall checklist
+  PART H  Where to look in Pipecat when you are stuck (read, don't copy)
+
+
+======================================================================
+PART A: THE MENTAL MODEL YOU ARE IMPLEMENTING
+======================================================================
+
+Everything is built from three ideas.
+
+1. FRAME: a small typed message. Audio, text, "user started speaking",
+   "stop", "error": everything is a frame. There are three kinds:
+     SYSTEM   urgent, handled immediately, never discarded
+     DATA     content, handled in order, discarded on interruption
+     CONTROL  signals, handled in order, discarded on interruption
+              unless marked "keep"
+
+2. PROCESSOR: a unit of work. It receives frames, does something, and
+   pushes frames to its next (downstream) or previous (upstream)
+   neighbour. It never calls other processors directly.
+
+3. PIPELINE: an ordered list of processors linked together:
+
+     input -> STT -> user_agg -> LLM -> TTS -> output -> assistant_agg
+
+A SESSION object starts the pipeline, owns its lifetime and ends it.
+
+Interruption is one urgent frame broadcast in both directions. Every
+processor that holds state clears that state when it sees the frame.
+
+
+======================================================================
+PART B: GROUND RULES FOR YOUR CODEBASE
+======================================================================
+
+Decide these on day one and never break them. Most real-time bugs come
+from breaking one of them.
+
+ R1  One asyncio event loop for the whole session. No threads, except
+     through run_in_executor for CPU-heavy work (VAD model inference).
+
+ R2  Every background task is created through a helper that records it
+     (e.g. processor.create_task(coro, name)). On shutdown, every
+     recorded task is cancelled and awaited. Never call
+     asyncio.create_task directly in feature code.
+
+ R3  A processor's process_frame() must return quickly. Anything slow
+     (network waits, long loops) either runs in a separate task or is
+     cancellable at every await point.
+
+ R4  Processors only talk through frames. No processor holds a
+     reference to another processor, except the pipeline linking them.
+
+ R5  Audio inside the pipeline is always 16-bit signed little-endian PCM,
+     mono. Every audio frame carries its sample_rate. Input is 16 kHz;
+     output is 24 kHz. Resample only at the edges (transport and
+     vendor boundaries).
+
+ R6  Every stateful processor implements a handle_interruption() method
+     that returns it to a clean idle state.
+
+ R7  Time is measured with time.monotonic() (or perf_counter) for
+     latency, never with wall-clock time.
+
+ R8  Every frame gets a unique id and a creation timestamp. You will
+     need both for debugging and latency tracing.
+
+ R9  Secrets come from environment variables (.env), never from code.
+
+ R10 Write a test for each phase before starting the next one.
+
+
+======================================================================
+PART C: PROJECT LAYOUT
+======================================================================
+
+  voiceagent/
+    core/
+      frames.py           Phase 1   frame classes
+      processor.py        Phase 2   Processor base class, directions
+      pipeline.py         Phase 3   Pipeline, Source, Sink
+      session.py          Phase 3   Session: start/end/cancel, events
+      tasks.py            Phase 2   task tracking helper
+      events.py           Phase 2   tiny event-handler mixin
+    observe/
+      observer.py         Phase 4   observer interface
+      frame_logger.py     Phase 4   logging observer
+      latency.py          Phase 16  latency tracker observer
+    audio/
+      pcm.py              Phase 5   helpers: duration, silence, chunking
+      resampler.py        Phase 5   resampling wrapper
+      vad.py              Phase 7   VAD analyzer + state machine
+      wav_dump.py         Phase 5   debug recorder
+    transport/
+      livekit_transport.py  Phase 6  connection owner
+      livekit_input.py      Phase 6  input processor
+      livekit_output.py     Phase 6  output processor
+    services/
+      ws_client.py        Phase 8   reusable websocket connection manager
+      deepgram_stt.py     Phase 8
+      gemini_llm.py       Phase 11
+      deepgram_tts.py     Phase 12
+    conversation/
+      context.py          Phase 9   provider-neutral message history
+      gemini_adapter.py   Phase 11  context -> Gemini format
+      turn_manager.py     Phase 10  turn start/stop decisions
+      user_aggregator.py  Phase 10
+      assistant_aggregator.py  Phase 13
+      text_splitter.py    Phase 12  sentence aggregator
+      tools.py            Phase 17  tool registry
+    bot.py                Phase 14  assembles everything
+    token_server.py       Phase 6   issues LiveKit tokens (dev)
+  tests/
+    harness.py            Phase 19  run a processor with scripted frames
+    test_*.py
+  scripts/
+    replay_wav.py         Phase 19  feed a WAV file as "user audio"
+
+
+======================================================================
+PART D: THE BUILD, PHASE BY PHASE
+======================================================================
+
+Every phase has:
+  GOAL       what exists at the end
+  BUILD      the pieces and their responsibilities
+  DETAILS    decisions and edge cases that matter
+  DONE WHEN  a concrete test that must pass before moving on
+
+
+----------------------------------------------------------------------
+PHASE 0: ENVIRONMENT, ACCOUNTS, TOOLING                 (half a day)
+----------------------------------------------------------------------
+
+GOAL
+  A clean Python project that can reach all three vendors.
+
+BUILD
+  - Python 3.11+ (you want asyncio.TaskGroup, better typing and
+    ExceptionGroup). Use a venv or uv.
+  - Dependencies (check current versions yourself):
+      livekit            realtime SDK (rtc.Room, AudioSource, AudioStream)
+      livekit-api        server SDK (AccessToken for tokens)
+      websockets         Deepgram STT/TTS websockets (or aiohttp)
+      google-genai       Gemini client (client.aio.models....)
+      numpy              audio math
+      onnxruntime        running the Silero VAD model
+      soxr (or scipy)    high-quality resampling
+      python-dotenv, loguru (or stdlib logging)
+      pytest, pytest-asyncio
+  - Accounts and keys: LiveKit Cloud project (URL, API key, API secret),
+    Deepgram API key, Gemini API key. Put them in .env.
+  - A web client to talk to your agent: LiveKit's hosted "Meet" or
+    "Agents Playground" app joined to the same room works for
+    development, and it gives you browser echo cancellation for free.
+
+DETAILS
+  - Write three tiny throwaway scripts first, one per vendor, to prove
+    each key works: join a LiveKit room; send a WAV file to Deepgram and
+    print the transcript; stream one Gemini reply to the console. Do not
+    build any architecture yet. These scripts become your API reference.
+
+DONE WHEN
+  All three smoke scripts work from the command line.
+
+
+----------------------------------------------------------------------
+PHASE 1: FRAMES                                         (half a day)
+----------------------------------------------------------------------
+
+GOAL
+  A frames.py module with a base class, the three kinds, and the first
+  set of concrete frames.
+
+BUILD
+  Base class Frame (a dataclass):
+    id            unique integer or uuid (auto)
+    name          class name + id, for logs (auto)
+    created_at    time.monotonic() at creation (auto)
+    interruptible bool, default True (see DETAILS)
+    metadata      dict, default empty (useful for tracing)
+
+  Three marker subclasses: SystemFrame, DataFrame, ControlFrame.
+
+  Starter set (add more later, only when needed):
+
+  SYSTEM frames
+    StartFrame(audio_in_rate, audio_out_rate, ...)   session config
+    CancelFrame(reason)                               stop immediately
+    ErrorFrame(message, fatal, source)               travels upstream
+    InterruptionFrame                                 user barged in
+    InputAudioFrame(audio: bytes, sample_rate, channels)
+    VADStartedFrame / VADStoppedFrame(stop_secs, at_time)
+    UserTurnStartedFrame / UserTurnStoppedFrame
+    BotStartedSpeakingFrame / BotStoppedSpeakingFrame
+    MetricsFrame(name, value, service)
+
+  DATA frames
+    TextFrame(text)                        generic text
+    LLMTextFrame(TextFrame)                a token chunk from the LLM
+    InterimTranscriptFrame(text)           STT partial
+    TranscriptFrame(text, finalized: bool) STT final
+    ContextFrame(context)                  "run the LLM on this"
+    SpeakFrame(text)                       "say exactly this" (greeting)
+    OutputAudioFrame(audio, sample_rate, channels)
+    TTSAudioFrame(OutputAudioFrame) + turn_id, sentence_id
+    SpokenTextFrame(text, turn_id)         text whose audio was played
+    ToolResultFrame(call_id, result)       interruptible = False
+
+  CONTROL frames
+    EndFrame                  graceful end; drains queues; keep = True
+    LLMResponseStartFrame / LLMResponseEndFrame
+    TTSStartedFrame / TTSStoppedFrame(turn_id)
+    ToolCallFrame(call_id, name, args)
+
+DETAILS
+  - Transcripts are DATA in this design but VAD events are SYSTEM,
+    because turn decisions must never queue behind slow work.
+  - Why input audio is SYSTEM: microphone audio must reach the VAD even
+    while a downstream stage is busy. Why output audio is DATA: it must
+    stay in order, and an interruption must be able to discard it.
+  - Mark EndFrame and ToolResultFrame interruptible=False. They must
+    survive an interruption.
+  - Keep frames immutable in spirit. Create a new frame rather than
+    editing one another processor may still hold.
+
+DONE WHEN
+  Unit tests: creating frames assigns unique ids; isinstance checks for
+  the three kinds work; EndFrame().interruptible is False.
+
+
+----------------------------------------------------------------------
+PHASE 2: THE PROCESSOR BASE CLASS             (2-3 days: THE HEART)
+----------------------------------------------------------------------
+
+GOAL
+  A Processor class that every component inherits from. Get this right
+  and the rest of the project is plumbing.
+
+BUILD
+  2a. Direction enum: DOWNSTREAM, UPSTREAM.
+
+  2b. Task tracker (tasks.py): create_task(coro, name) records the task;
+      cancel_task(task, timeout) cancels it and awaits it with a timeout;
+      cancel_all() is used at shutdown; list_alive() is for leak checks.
+
+  2c. Event mixin (events.py): register_event(name);
+      on(name, handler) as a decorator; await emit(name, *args). Run
+      handlers as tracked tasks by default so a slow handler never
+      blocks the pipeline; allow sync=True for handlers that must run
+      inline.
+
+  2d. Processor:
+
+      State
+        name, prev, next           links (set by the pipeline)
+        input_queue                PRIORITY queue: StartFrame first,
+                                   then SystemFrame, then everything
+                                   else; FIFO within one priority
+                                   (use a counter as a tie-breaker)
+        process_queue              plain FIFO asyncio.Queue
+        input_task, process_task
+        current_frame              frame being handled by process_task
+        started                    bool
+
+      Public methods
+        link(next_processor)       sets self.next and next.prev
+        await queue_frame(frame, direction)
+                                   called BY THE NEIGHBOUR; puts the
+                                   pair on input_queue
+        await push_frame(frame, direction=DOWNSTREAM)
+                                   sends to next/prev.queue_frame(); if
+                                   there is no neighbour in that
+                                   direction, drop it (log at trace)
+        await broadcast(frame_class, **kwargs)
+                                   pushes a NEW instance of the frame
+                                   both ways (two instances, never the
+                                   same object)
+        await process_frame(frame, direction)
+                                   override point; subclasses call
+                                   super() first and then decide
+                                   whether to forward the frame
+        await setup() / cleanup()  resource acquisition and release
+        create_task / cancel_task  delegate to the tracker
+
+      Internal loops
+        input loop:   forever: get from input_queue;
+                      SystemFrame -> await _handle(frame) right here;
+                      otherwise   -> put on process_queue
+        process loop: forever: get from process_queue; set
+                      current_frame; await _handle(frame)
+        _handle():    await process_frame(); catch exceptions and push
+                      an ErrorFrame UPSTREAM instead of crashing
+
+      Built-in reactions (in the base process_frame)
+        StartFrame        store config, mark started, call on_start()
+        InterruptionFrame run _start_interruption(), then the subclass's
+                          handle_interruption()
+        CancelFrame       call on_cancel(), stop both loops
+        EndFrame          call on_end() (subclasses flush and close)
+
+  2e. _start_interruption(): the most important 15 lines you will write.
+      - If current_frame is interruptible (or None): cancel
+        process_task, empty process_queue EXCEPT frames with
+        interruptible=False (put those back in order), then start a new
+        process_task.
+      - If current_frame is NOT interruptible: do not cancel it; just
+        remove the interruptible frames from the queue.
+      Cancelling the process task is what stops an in-flight LLM stream
+      or a TTS send loop, because that work was running inside it.
+
+DETAILS
+  - Frames must be forwarded explicitly. A processor that does not push
+    a frame swallows it. The default for unknown frames should be "push
+    it on in the same direction". Forgetting this is the number one
+    beginner bug: EndFrame or StartFrame never reaches the end.
+  - Handle CancelledError correctly: let it propagate. Never catch bare
+    Exception around an await without re-raising CancelledError.
+  - Offer a direct mode (no queues, handle inline) for trivial
+    processors such as the pipeline's source and sink. It reduces
+    latency and task count.
+  - Pause/resume is useful later (TTS may want to hold new text while
+    audio plays). Implement it as an asyncio.Event that the process
+    loop waits on. Optional for now.
+
+DONE WHEN
+  Tests with toy processors:
+   T1 Passthrough chain A -> B -> C: 100 TextFrames arrive at the end in
+      order.
+   T2 A "slow" processor sleeps 1 s per DataFrame. A SystemFrame sent
+      after 5 DataFrames still arrives downstream before the DataFrames
+      do.
+   T3 While the slow processor is sleeping, send InterruptionFrame: the
+      sleep is cancelled, the queued DataFrames are gone, and a queued
+      interruptible=False frame is still delivered.
+   T4 An exception inside process_frame becomes an ErrorFrame upstream
+      and the processor keeps working.
+   T5 After cancel_all(), list_alive() is empty.
+
+
+----------------------------------------------------------------------
+PHASE 3: PIPELINE AND SESSION                           (1-2 days)
+----------------------------------------------------------------------
+
+GOAL
+  You can declare Pipeline([p1, p2, p3]) and run it from start to a
+  clean end.
+
+BUILD
+  Pipeline (itself a Processor, so pipelines can nest):
+    - wraps the list as [Source, *processors, Sink] and links neighbours
+    - Source: a frame arriving DOWNSTREAM from outside enters the chain;
+      a frame reaching Source travelling UPSTREAM leaves the pipeline
+      (goes to the session)
+    - Sink: the mirror image at the other end
+    - setup()/cleanup() call every child in order
+
+  Session (the "runner" for one conversation):
+    - run(): calls setup on the pipeline, pushes StartFrame, then waits
+      until an EndFrame or CancelFrame has reached the Sink (or a
+      timeout); then runs cleanup and verifies no tasks leaked
+    - queue_frame(s)(): lets application code inject frames (e.g. a
+      greeting SpeakFrame)
+    - end(): push EndFrame (graceful: drains queues first)
+    - cancel(): push CancelFrame (immediate)
+    - events: on_started, on_finished, on_error(ErrorFrame)
+    - an ErrorFrame reaching the Source upstream triggers on_error; a
+      fatal error triggers cancel()
+    - an idle watchdog: if no "activity" frames (audio, transcripts,
+      bot speaking) are seen for N minutes, end the session
+
+DETAILS
+  - Why EndFrame is a CONTROL frame: it queues behind pending data, so
+    when it reaches the Sink, every earlier frame has been processed.
+    This gives you a graceful shutdown for free.
+  - Why CancelFrame is a SYSTEM frame: it skips the queues.
+  - The session must not hang if a processor is stuck. Wrap waits in
+    timeouts and log which processor still holds tasks.
+
+DONE WHEN
+   T6 Pipeline of three passthroughs: run(), queue 10 TextFrames, then
+      end(); the session finishes and all 10 frames reached the Sink
+      before the EndFrame.
+   T7 cancel() with a slow processor finishes within 1 s.
+   T8 A processor that raises an error triggers on_error.
+   T9 A nested pipeline inside a pipeline works.
+
+
+----------------------------------------------------------------------
+PHASE 4: OBSERVABILITY, BUILT EARLY                        (1 day)
+----------------------------------------------------------------------
+
+GOAL
+  You can see every frame move, with timestamps, without adding
+  processors to the pipeline.
+
+BUILD
+  - Observer interface: on_push(src, dst, frame, direction, t). Have
+    Processor.push_frame call every registered observer (the session
+    passes the observers to all processors at setup).
+  - FrameLogger observer: logs "t=+1.234s STT -> UserAgg
+    TranscriptFrame('hi')". Add filters: by frame type, and ignore
+    audio frames by default (they arrive 50 times a second).
+  - MetricsFrame emission helpers inside services: start_ttfb(),
+    stop_ttfb() (time from request to first byte), processing time.
+
+DETAILS
+  - Observers must be read-only and fast. Heavy work goes to a queue
+    and a tracked task.
+  - Add a "session clock" (t0 = StartFrame time) so logs show relative
+    time. You will read these logs for weeks.
+
+DONE WHEN
+  Running T6 prints a readable timeline of every frame.
+
+
+----------------------------------------------------------------------
+PHASE 5: AUDIO UTILITIES                                (half a day)
+----------------------------------------------------------------------
+
+GOAL
+  Small, tested helpers that every audio component uses.
+
+BUILD
+  pcm.py
+    bytes_per_ms(rate, channels)         rate/1000 * 2 * channels
+    duration_ms(nbytes, rate, channels)
+    silence(ms, rate)
+    Chunker: feed arbitrary byte lengths and get exact N-ms chunks out,
+      keeping the remainder; flush(pad_with_silence) at the end
+    align_even(buffer): 16-bit samples need an even byte count; carry
+      an odd byte over to the next chunk
+    rms / volume of a chunk (for debug and VAD gating)
+  resampler.py
+    A stateful streaming resampler per stream (not per chunk, or you
+    get clicks at chunk edges). Wrap soxr's streaming API.
+  wav_dump.py
+    Records any audio stream to a WAV file. Invaluable: record what
+    STT received and what the output played.
+
+DONE WHEN
+  Unit tests: the Chunker yields exact sizes and no bytes are lost;
+  resampling 1 s of 48 kHz gives about 1 s at 16 kHz; a dumped WAV
+  plays correctly.
+
+
+----------------------------------------------------------------------
+PHASE 6: LIVEKIT TRANSPORT                              (2-3 days)
+----------------------------------------------------------------------
+
+GOAL
+  The agent joins a LiveKit room, hears the user, and can play audio.
+  Proven with an echo bot.
+
+BUILD
+  6a. token_server.py (dev only): uses livekit-api AccessToken with
+      VideoGrants(room_join=True, room=<name>) to mint tokens for the
+      agent and for your browser client.
+
+  6b. LiveKitTransport: owns ONE rtc.Room for the session.
+      connect(): await room.connect(url, token, RoomOptions(
+      auto_subscribe=True)). Create an rtc.AudioSource(24000, 1,
+      queue_size_ms=...), wrap it in
+      rtc.LocalAudioTrack.create_audio_track("agent", source), and
+      publish it with local_participant.publish_track(...) using source
+      SOURCE_MICROPHONE.
+      Events to expose: participant_joined, participant_left,
+      track_subscribed, disconnected.
+      Provides .input() and .output(): two processors sharing this
+      transport object.
+
+  6c. LiveKitInput (a Processor, first in the pipeline):
+      - on track_subscribed for an audio track from the user: create
+        rtc.AudioStream(track) (you can request 16 kHz mono from the SDK
+        or resample yourself) and start a tracked task that iterates the
+        stream
+      - for each received AudioFrame: convert to bytes, slice into 20 ms
+        chunks, and push InputAudioFrame DOWNSTREAM
+      - later this is where VAD plugs in (Phase 7)
+
+  6d. LiveKitOutput (a Processor, near the end of the pipeline):
+      - receives OutputAudioFrame/TTSAudioFrame: resample to 24 kHz if
+        needed, re-chunk to 20-40 ms, put on an internal playback queue
+      - a playback task drains the queue: await source.capture_frame(
+        rtc.AudioFrame(...)). capture_frame applies backpressure, so
+        this task naturally runs at real-time speed
+      - bot-speaking detection: on the first chunk after silence push
+        BotStartedSpeakingFrame (both directions); after ~300 ms with no
+        audio queued push BotStoppedSpeakingFrame
+      - on InterruptionFrame: cancel the playback task, clear the
+        internal queue, call audio_source.clear_queue() (drops audio
+        already handed to LiveKit but not yet sent), push
+        BotStoppedSpeakingFrame if the bot was speaking, then restart
+        the playback task
+      - forward non-audio frames in order WITH the audio: a TTSStopped
+        or SpokenTextFrame must be pushed on only after the audio before
+        it has been played. Put those frames into the same playback
+        queue and push them when the playback task reaches them
+
+DETAILS
+  - Output chunk size is an interruption-latency knob: 40 ms chunks mean
+    at most about 40 ms of extra audio after a cancel (plus whatever is
+    in LiveKit's queue, which clear_queue() removes).
+  - Keep AudioSource's queue_size_ms modest (a few hundred ms). A large
+    queue delays how quickly you notice interruptions.
+  - Echo: rely on the browser client's echo cancellation. If the user
+    uses speakers without AEC, the bot will hear itself and interrupt
+    itself. Test with headphones first.
+
+DONE WHEN
+   T10 Echo bot: Pipeline([transport.input(), transport.output()]). You
+       speak in the browser and hear yourself back with a small delay.
+   T11 WAV dumps of input and output are clean (no clicks, correct
+       speed).
+   T12 Pushing an InterruptionFrame during a long echo stops playback
+       within ~100 ms.
+
+
+----------------------------------------------------------------------
+PHASE 7: VAD (VOICE ACTIVITY DETECTION)                    (1-2 days)
+----------------------------------------------------------------------
+
+GOAL
+  Reliable "user started speaking" and "user stopped speaking" events.
+
+BUILD
+  VADAnalyzer (not a processor; a plug-in object):
+    - loads the Silero VAD ONNX model once at startup (pre-warm: run one
+      inference on silence so the first real call is fast)
+    - consumes 16 kHz audio in fixed windows (512 samples = 32 ms for
+      Silero at 16 kHz); buffers leftovers between calls
+    - per window: confidence = model(window); volume = smoothed rms
+    - speaking = confidence >= 0.7 AND volume >= threshold
+    - state machine: QUIET -> STARTING -> SPEAKING -> STOPPING -> QUIET
+        STARTING -> SPEAKING after start_secs (0.2 s) of speech
+        STOPPING -> QUIET after stop_secs (0.2 s) of silence
+        a non-speech window while STARTING returns to QUIET
+        a speech window while STOPPING returns to SPEAKING
+    - run model inference with loop.run_in_executor on a single-thread
+      executor so the event loop never blocks (rule R1)
+
+  Where it runs: in the input path, as early as possible. Either inside
+  LiveKitInput (analyze each chunk before pushing it) or as a small
+  VADProcessor right after input. Emit VADStartedFrame and
+  VADStoppedFrame as SYSTEM frames, broadcast in both directions.
+
+DETAILS
+  - Keep stop_secs short (about 0.2 s). VAD "stopped" only means "check
+    now whether the turn is over". The turn decision (Phase 10) adds the
+    smarter waiting.
+  - Model state: Silero keeps an internal state tensor between calls.
+    Reset it periodically, or after long silence, to avoid drift.
+  - Record the time the user actually stopped: VADStopped time minus
+    stop_secs. Latency is measured from there.
+
+DONE WHEN
+   T13 Speaking and pausing in the browser prints clean
+       Started/Stopped events. No flapping during breaths shorter than
+       0.2 s.
+   T14 Replay a recorded WAV through the analyzer: event times match
+       the waveform within about 50 ms.
+
+
+----------------------------------------------------------------------
+PHASE 8: DEEPGRAM STT SERVICE                              (2-3 days)
+----------------------------------------------------------------------
+
+GOAL
+  Live transcripts (interim and final) from a persistent websocket.
+
+BUILD
+  8a. A reusable WebsocketClient (services/ws_client.py). You will use it
+      twice (STT and TTS).
+      - connect(url, headers) with a timeout
+      - a receive task that hands each message to a callback
+      - send_json / send_bytes guarded by "is open"
+      - reconnect with exponential backoff (e.g. 0.5 s, 1 s, 2 s ... up
+        to 10 s); give up after N quick consecutive failures and push a
+        fatal ErrorFrame
+      - a keepalive task (subclass-defined message, e.g. every 5 s)
+      - close() that sends the vendor's close message, then closes the
+        socket with a timeout
+
+  8b. DeepgramSTT (a Processor, after input and VAD):
+      - on StartFrame: open wss://api.deepgram.com/v1/listen with query
+        parameters: model (a Nova-class model), encoding=linear16,
+        sample_rate=16000, channels=1, interim_results=true,
+        punctuate/smart_format as you like. Check Deepgram's docs for
+        current names; endpointing can be left off because YOU do turn
+        detection. Header: Authorization: Token <key>.
+      - on InputAudioFrame: send the raw bytes (binary message); forward
+        the frame downstream too (the turn manager needs audio later if
+        you add a turn model)
+      - keepalive: {"type":"KeepAlive"} every ~5 s, but ONLY when no
+        audio is flowing (e.g. while the mic is muted). Deepgram closes
+        idle sockets after about 10 s
+      - on VADStoppedFrame: send {"type":"Finalize"} and remember that
+        a finalize is pending. Deepgram then flushes what it heard
+        immediately instead of waiting for its own endpointing
+      - receive task: parse "Results" messages:
+          channel.alternatives[0].transcript -> text
+          is_final false -> push InterimTranscriptFrame
+          is_final true  -> push TranscriptFrame(text, finalized=
+                            (response came from your Finalize))
+        Deepgram marks responses to Finalize (from_finalize); use it to
+        set finalized=True. Ignore empty transcripts.
+      - metrics: time from VADStopped to finalized transcript. This is
+        one of your key latency numbers
+      - on EndFrame: send {"type":"CloseStream"} and close; on CancelFrame
+        close immediately
+
+DETAILS
+  - Connect once per session, not per turn (pre-warm). Connect at setup
+    so the first user turn does not pay the handshake.
+  - Transcript frames are produced by the receive task, not by
+    process_frame. Pushing from another task is fine: push_frame just
+    enqueues on the neighbour.
+  - Accumulate multiple is_final segments of one user turn; the turn
+    manager concatenates them.
+
+DONE WHEN
+   T15 Speak in the browser: interim text updates live and a finalized
+       transcript arrives about 100-400 ms after VADStopped.
+   T16 Kill your network for 5 s: the client reconnects and transcripts
+       resume.
+
+
+----------------------------------------------------------------------
+PHASE 9: CONVERSATION CONTEXT                            (half a day)
+----------------------------------------------------------------------
+
+GOAL
+  A provider-neutral message history shared by the two aggregators.
+
+BUILD
+  Context:
+    messages: list of {role: "system"|"user"|"assistant"|"tool",
+              content: str, plus tool-call fields later}
+    system_prompt (kept separate; Gemini takes it as
+                   system_instruction)
+    tools: list of tool schemas (Phase 17)
+    add_user(text), add_assistant(text), add_tool_call(...),
+    add_tool_result(...)
+    snapshot() -> an immutable copy, so the LLM request never sees a
+                  list that changes underneath it
+    trim policy: keep the last N turns or a token budget
+
+DETAILS
+  - One Context object per session, passed to both aggregators at
+    construction.
+  - Never store vendor-specific shapes here. Conversion happens in the
+    adapter (Phase 11). This lets you swap LLMs later.
+
+DONE WHEN
+  Unit tests for add, snapshot independence and trimming.
+
+
+----------------------------------------------------------------------
+PHASE 10: USER TURN MANAGER + USER AGGREGATOR      (3-4 days: CRUCIAL)
+----------------------------------------------------------------------
+
+GOAL
+  The agent knows when the user starts talking (so it can interrupt
+  itself) and when the user has finished (so it can answer), quickly
+  and without cutting people off.
+
+BUILD
+  UserAggregator (a Processor, after STT). It owns a TurnManager.
+
+  TurnManager: a pure state machine with no I/O, so it is easy to test.
+    state: IDLE | USER_SPEAKING | WAITING_FOR_END
+    inputs: vad_started, vad_stopped(at), interim(text),
+            final(text, finalized), bot_speaking(bool), timer_fired
+    outputs (return values or callbacks):
+            TURN_STARTED, TURN_ENDED(text)
+
+    Turn START rules (any one triggers):
+      S1 VAD started (and the user isn't muted)
+      S2 a transcript arrives while no turn is active (VAD missed it)
+      Barge-in guard (optional, recommended): while the bot is speaking,
+      require 2+ words in interim transcripts before starting a turn.
+      This filters "mm-hmm" and coughs. When the bot is silent, 1 word
+      or VAD alone is enough.
+
+    Turn END rules: all of these must be true
+      E1 VAD has stopped (the user is silent)
+      E2 at least one transcript is in (the text is not empty)
+      E3 the transcript is final: either finalized=True has arrived,
+         OR a safety timeout (~0.35-0.5 s after the real stop time) has
+         passed
+      E4 "the user sounds finished". Start with a simple fixed extra
+         wait (e.g. 0.3-0.6 s after VAD stop, reset if speech resumes).
+         Later upgrade to a turn-completion model (see DETAILS).
+      If VAD restarts before all are true: cancel the timers and go
+      back to USER_SPEAKING (the user was just pausing).
+
+  UserAggregator behaviour:
+    - on TURN_STARTED: broadcast InterruptionFrame (both directions) if
+      the bot is speaking or an answer is in flight; push
+      UserTurnStartedFrame; start collecting text
+    - on TranscriptFrame: append text; do NOT forward transcripts
+      further downstream (the LLM should only see ContextFrame)
+    - on TURN_ENDED: context.add_user(full_text); push UserTurnStopped;
+      push ContextFrame(context.snapshot()) DOWNSTREAM
+    - track bot speaking via BotStarted/StoppedSpeakingFrame arriving
+      UPSTREAM from the output transport (they are broadcast)
+    - handle_interruption: nothing to clear here (it is the one sending
+      it), but reset partial state if it received its own echo
+
+DETAILS
+  - Timers are tracked tasks; always cancel the old timer before
+    starting a new one.
+  - The upgrade path for E4, in order of effort:
+      (a) punctuation heuristic: a final transcript ending in "." "?"
+          "!" -> shorten the wait; ending in "and", "but", "so", "um",
+          or a comma -> lengthen it
+      (b) an audio turn-completion model (open-source "smart turn"
+          style models): feed the last ~8 s of the user's audio and get
+          P(turn complete). Keep the aggregator's audio buffer for this
+      (c) an STT with native end-of-turn events (Deepgram Flux offers
+          EndOfTurn and EagerEndOfTurn). Then the vendor does E3 + E4
+  - Speculative answering (advanced, later): on an "eager" end-of-turn
+    signal, start the LLM immediately but HOLD its output. If the user
+    continues or the final transcript differs, discard it; if the turn
+    is confirmed, release it. This hides LLM time-to-first-token inside
+    the endpointing wait.
+  - Write the TurnManager tests as timelines: "VAD start at 0, final
+    'hello' at 0.9, VAD stop at 1.0 -> turn end at <= 1.35".
+
+DONE WHEN
+   T17 Timeline unit tests for: normal turn; pause mid-sentence (no early
+       end); VAD misses the start (transcript-only turn); STT late
+       (timeout path); barge-in with a backchannel ("uh-huh" is
+       ignored while the bot speaks).
+   T18 Live: talking produces exactly one ContextFrame per user turn,
+       with the right text.
+
+
+----------------------------------------------------------------------
+PHASE 11: GEMINI LLM SERVICE                               (2 days)
+----------------------------------------------------------------------
+
+GOAL
+  ContextFrame in, a stream of LLMTextFrames out, cancellable at any
+  moment.
+
+BUILD
+  11a. GeminiAdapter: converts the Context to Gemini's shapes:
+       - role "assistant" -> "model"; role "user" stays "user"
+       - each message -> Content(role, parts=[Part(text=...)])
+       - the system prompt -> GenerateContentConfig(system_instruction)
+       - tools -> Gemini function declarations (Phase 17)
+       - merge consecutive same-role messages if the API requires
+         alternation
+
+  11b. GeminiLLM (a Processor, after UserAggregator):
+       - create ONE google-genai client at setup and reuse it for the
+         whole session (connection reuse)
+       - on ContextFrame:
+           push LLMResponseStartFrame
+           stream = await client.aio.models.generate_content_stream(
+                        model=..., contents=..., config=...)
+           async for chunk in stream: for each text part push
+             LLMTextFrame(part_text)
+           push LLMResponseEndFrame
+         wrap it in try/finally and close the stream in finally (if the
+         object offers aclose()), so an interruption releases the HTTP
+         connection
+       - this runs INSIDE process_frame, i.e. inside the process task.
+         That is deliberate: an InterruptionFrame cancels that task,
+         which raises CancelledError at the current await and stops the
+         stream. You get LLM cancellation for free from Phase 2
+       - add a stall timeout per chunk (e.g. 10 s): if no chunk arrives,
+         abort with an ErrorFrame
+       - metrics: TTFT = time from ContextFrame to first text chunk
+
+DETAILS
+  - Choose a fast "Flash"-class Gemini model; check the current model
+    list. Turn off or minimise "thinking" for voice, since it adds
+    time to the first token.
+  - Prompt for speech: short sentences, no markdown or emoji, and a
+    short first sentence. The first sentence length directly controls
+    when TTS can start.
+  - Safety or other finish reasons: log them. Whatever text arrived is
+    still spoken.
+
+DONE WHEN
+   T19 Test harness: push ContextFrame("Tell me a joke") and receive
+       ResponseStart, several LLMTextFrames, then ResponseEnd.
+   T20 Push InterruptionFrame 200 ms after the ContextFrame: no more
+       LLMTextFrames appear and no ResponseEnd is sent for that turn.
+
+
+----------------------------------------------------------------------
+PHASE 12: SENTENCE AGGREGATOR + DEEPGRAM TTS            (3-4 days)
+----------------------------------------------------------------------
+
+GOAL
+  Speech starts as soon as the first sentence exists, is streamed from
+  one persistent websocket, and stops instantly on interruption.
+
+BUILD
+  12a. SentenceSplitter (text_splitter.py; a plain object, heavily unit
+       tested):
+       feed(chunk) -> list of complete sentences; flush() -> leftover
+       Algorithm:
+         - append characters one at a time
+         - when you see . ! ? ; (or …) mark a CANDIDATE boundary
+         - do not split yet: wait for the NEXT non-space character
+           (one character of lookahead). Then decide:
+             * the next char is a letter or digit after whitespace, and
+               the text before the period isn't a known abbreviation
+               (Dr, Mr, Mrs, St, e.g, i.e, vs, etc) or a single capital
+               initial ("J.") -> split
+             * a digit right after the period ("3.14") -> no split
+         - emit the sentence; keep the lookahead char in the buffer
+       Optional: a library sentence segmenter for multi-language
+       support (Pipecat uses one), but the rule set above covers
+       English well.
+       Optional: emit early on a comma if the buffer is already long
+       (> ~120 chars) so long first sentences don't delay speech.
+
+  12b. DeepgramTTS (a Processor, after the LLM):
+       Connection (reuse WebsocketClient from 8a)
+         wss://api.deepgram.com/v1/speak?model=<aura voice>&
+             encoding=linear16&sample_rate=24000
+         Authorization: Token <key>
+         Connect at setup; keep it for the session.
+       Client -> server messages
+         {"type":"Speak","text": "<sentence>"}   queue text
+         {"type":"Flush"}                         synthesize what's queued
+         {"type":"Clear"}                         drop queued text/audio
+         {"type":"Close"}                         end
+       Server -> client
+         binary messages = PCM audio
+         {"type":"Flushed"} = everything before the Flush was sent
+         {"type":"Cleared"} = clear acknowledged
+         Metadata / Warning messages
+
+       Frame handling
+         LLMResponseStartFrame: new turn_id; reset the splitter; push
+                                TTSStartedFrame
+         LLMTextFrame:          for each sentence the splitter returns:
+                                send Speak(sentence); remember
+                                (turn_id, sentence) in an ordered list
+                                for Phase 13
+         LLMResponseEndFrame:   leftover = splitter.flush(); send it as
+                                Speak if non-empty; then send Flush
+         SpeakFrame(text):      same as a one-sentence response
+                                (greetings)
+         InterruptionFrame:     send Clear; reset the splitter; mark the
+                                current turn_id as CANCELLED; drop any
+                                audio that still arrives tagged with a
+                                cancelled turn
+       Receive task
+         binary audio -> push TTSAudioFrame(audio, 24000, 1, turn_id)
+         downstream immediately (no buffering)
+         Flushed -> push TTSStoppedFrame(turn_id)
+       Metrics: TTFB = time from the first Speak of a turn to the first
+       audio byte.
+
+DETAILS
+  - THE STALE AUDIO PROBLEM: after you send Clear, bytes already in
+    flight on the socket may still arrive. Tag every outgoing turn with
+    turn_id, and after an interruption ignore audio until the next
+    turn starts (or until "Cleared" arrives). Without this, the old
+    answer's tail plays at the start of the new answer.
+  - Why Flush only at response end: Deepgram can then keep prosody
+    across sentences; the first Speak still starts audio quickly. If
+    your measured first-audio time is slow, experiment with sending
+    Flush after the FIRST sentence as well.
+  - Sending Speak happens inside process_frame (quick network writes).
+    Audio arrives on the receive task. So text processing and audio
+    delivery run concurrently.
+  - If you ever use an HTTP-only TTS: stream the response body and
+    push chunks as they arrive. Never download the whole file first.
+
+DONE WHEN
+   T21 Splitter unit tests: "Hello. Next" -> ["Hello."];
+       "Dr. Smith is here." -> one sentence; "Pi is 3.14 ok." -> one
+       sentence; "I am here! Are you?" -> two sentences on flush.
+   T22 Pipeline input -> ... -> LLM -> TTS -> output: an injected
+       ContextFrame is spoken, and first audio starts before the LLM
+       finishes (check the timeline log).
+   T23 Interrupt mid-answer: audio stops within ~150 ms, and the next
+       answer starts cleanly with no leftover words.
+
+
+----------------------------------------------------------------------
+PHASE 13: ASSISTANT AGGREGATOR                              (1 day)
+----------------------------------------------------------------------
+
+GOAL
+  The context records what the user actually HEARD.
+
+BUILD
+  Placement: LAST in the pipeline, after the output transport.
+
+  How it knows what was played: the TTS service, when it sends
+  Speak(sentence), also pushes a SpokenTextFrame(sentence, turn_id)
+  DOWNSTREAM right after the audio it belongs to. Because the output
+  transport forwards non-audio frames only when the playback task
+  reaches them (Phase 6d), a SpokenTextFrame arrives here only after
+  its audio has been played. (Simple rule: attach the sentence text
+  frame after that sentence's audio. Deepgram does not tell you where
+  one sentence's audio ends, so the simplest good-enough approach is
+  per-response granularity at first, then refine per sentence using
+  the "Flushed" markers or word timestamps if your TTS vendor offers
+  them.)
+
+  AssistantAggregator:
+    - LLMResponseStartFrame / TTSStartedFrame: start a new buffer
+    - SpokenTextFrame: append the text
+    - TTSStoppedFrame or BotStoppedSpeaking: context.add_assistant(
+      buffer); clear it
+    - InterruptionFrame: commit whatever was heard so far (partial
+      reply), then clear it
+
+DETAILS
+  - If the user interrupted after 2 of 5 sentences, the context now
+    holds 2 sentences. The LLM will not believe it said things the user
+    never heard.
+
+DONE WHEN
+   T24 Interrupt the bot mid-answer, then ask "what were you saying?":
+       the bot refers only to what it actually said.
+
+
+----------------------------------------------------------------------
+PHASE 14: FIRST FULL END-TO-END BOT                         (1 day)
+----------------------------------------------------------------------
+
+GOAL
+  A real conversation in the browser.
+
+BUILD  (bot.py)
+  1. Load .env; create the transport; mint a token (or receive one).
+  2. Create the context with the system prompt.
+  3. Create the processors:
+       input  = transport.input()        (VAD inside or right after)
+       stt    = DeepgramSTT(...)
+       user   = UserAggregator(context, turn settings)
+       llm    = GeminiLLM(adapter, model, ...)
+       tts    = DeepgramTTS(voice, ...)
+       output = transport.output()
+       asst   = AssistantAggregator(context)
+  4. pipeline = Pipeline([input, stt, user, llm, tts, output, asst])
+  5. session = Session(pipeline, observers=[FrameLogger(), ...])
+  6. Events:
+       transport participant_joined -> session.queue_frame(
+           SpeakFrame("Hi! How can I help?"))  (or push a ContextFrame
+           with an instruction to greet)
+       transport participant_left / disconnected -> session.end()
+  7. await session.run()
+
+DONE WHEN
+   T25 A two-minute conversation with interruptions, no crashes, clean
+       shutdown when you leave the room, and no leaked tasks reported.
+
+
+----------------------------------------------------------------------
+PHASE 15: INTERRUPTION HARDENING                          (2 days)
+----------------------------------------------------------------------
+
+GOAL
+  Barge-in works in every timing window.
+
+TEST MATRIX: interrupt at each moment and verify the outcome
+  W1 while the LLM is waiting for its first token   -> LLM cancelled
+  W2 while the LLM streams but before TTS audio     -> LLM cancelled,
+                                                       Clear sent
+  W3 while TTS is synthesizing and audio plays      -> Clear sent,
+                                                       playback cut,
+                                                       LiveKit queue
+                                                       cleared
+  W4 after the LLM finished, audio still playing    -> playback cut;
+                                                       partial reply in
+                                                       context
+  W5 during a tool call (Phase 17)                   -> tool result
+                                                       kept or cancelled
+                                                       per tool policy
+  W6 a backchannel "uh-huh" while the bot speaks     -> NOT an
+                                                       interruption
+
+CHECKLIST per stateful component (each handle_interruption()):
+  splitter buffer cleared; TTS turn marked cancelled; output queue
+  cleared + clear_queue(); bot-speaking flag reset + BotStopped pushed;
+  LLM stream closed; any pause events released (avoid deadlocks where
+  a processor waits for a BotStopped that never comes).
+
+DONE WHEN
+  All six windows behave correctly ten times in a row.
+
+
+----------------------------------------------------------------------
+PHASE 16: LATENCY MEASUREMENT AND OPTIMISATION        (ongoing, 3+ days)
+----------------------------------------------------------------------
+
+GOAL
+  Know where every millisecond goes, then remove it.
+
+BUILD a LatencyTracker observer that records, per turn:
+  t0  user actually stopped speaking   (VADStopped time - stop_secs)
+  t1  VADStoppedFrame seen
+  t2  finalized TranscriptFrame
+  t3  ContextFrame pushed (turn ended)
+  t4  first LLMTextFrame
+  t5  first sentence sent to TTS
+  t6  first TTS audio byte
+  t7  first output chunk written to LiveKit   <- the end-to-end number
+  Log one line per turn: "e2e=t7-t0 | vad=.. stt=.. turn=.. llm=..
+  split=.. tts=.. out=..". Also keep p50/p90 over the session.
+
+ROUGH BUDGET (estimates to verify with YOUR measurements, not
+guarantees):
+  VAD stop window           200 ms
+  finalize / turn decision  100-300 ms
+  LLM first token           250-600 ms (model, region, prompt size)
+  first sentence complete   50-300 ms  (short first sentence helps)
+  TTS first audio           100-250 ms
+  output + network          50-150 ms
+  Sub-second requires the low end of most of these, or overlapping
+  them (speculation).
+
+OPTIMISATIONS, roughly by impact/effort
+  1. Region co-location: run the agent near the LiveKit edge and the
+     vendor regions. Cross-ocean round trips add 100+ ms per hop.
+  2. Persistent connections everywhere (already done if you followed
+     the plan): STT and TTS sockets and the Gemini client kept per
+     session. Pre-warm at session start: open sockets, send one tiny
+     Gemini request, run one VAD inference.
+  3. Finalize on VAD stop (Phase 8) and end the turn on finalized=True
+     instead of waiting for a timeout.
+  4. A short-first-sentence prompt + one-character-lookahead splitter.
+  5. A fast LLM configuration: a Flash-class model, no or minimal
+     thinking, a short system prompt, trimmed history.
+  6. Smarter endpointing (Phase 10 upgrades) so you can shorten fixed
+     waits without cutting people off.
+  7. Speculative LLM on eager end-of-turn with a hold/release gate.
+  8. Pre-warm the Gemini connection again when VAD fires (if HTTP
+     keep-alive expired during a long user turn).
+  9. Output chunk size of 20-40 ms and a small LiveKit queue.
+
+DONE WHEN
+  You can state p50 and p90 for each segment and have a written list of
+  what each optimisation gained.
+
+
+----------------------------------------------------------------------
+PHASE 17: FUNCTION CALLING (TOOLS)                         (2-3 days)
+----------------------------------------------------------------------
+
+GOAL
+  The agent can call your Python functions mid-conversation.
+
+BUILD
+  - ToolRegistry: name -> (schema, async handler, options). Options:
+    cancel_on_interruption (bool), timeout_s, filler_text.
+  - Context gains tool-call and tool-result messages; the adapter maps
+    them to Gemini function_call / function_response parts.
+  - GeminiLLM: while streaming, collect function_call parts. At the end
+    of the stream, for each call:
+      push ToolCallFrame UPSTREAM and DOWNSTREAM (so the aggregators
+      record it) and run the handler as a TRACKED TASK (not inline, so
+      audio and interruptions keep flowing)
+      optional: push SpeakFrame(filler_text) ("One moment...")
+  - When the handler finishes: push ToolResultFrame (interruptible=
+    False). The assistant aggregator (end of pipeline) records call +
+    result in the context and then pushes a ContextFrame UPSTREAM to
+    the LLM to continue the answer.
+  - On interruption: cancel handlers marked cancel_on_interruption;
+    let the others finish and record their results.
+
+DETAILS
+  - Why the result goes through the assistant aggregator: the context
+    has one writer per role, and ordering stays correct.
+  - Guard against loops: cap tool rounds per user turn (e.g. 3).
+
+DONE WHEN
+   T26 "What's the weather in Paris?" -> tool runs, the result is
+       spoken, and the context contains call + result in order.
+
+
+----------------------------------------------------------------------
+PHASE 18: ROBUSTNESS AND SHUTDOWN                           (2 days)
+----------------------------------------------------------------------
+
+BUILD / VERIFY
+  - Errors: every service catches its vendor errors and pushes
+    ErrorFrame(fatal=False) upstream. The session's on_error decides:
+    retry, apologise with a SpeakFrame, or end.
+  - A service that fails N times quickly is "unusable". The session
+    policy is CONTINUE, END or CANCEL.
+  - Optional failover: a Switcher processor that holds two LLMs (or
+    TTSs) and routes frames to the active one; switch on repeated
+    errors.
+  - Idle watchdog (Phase 3) ends silent sessions.
+  - Graceful shutdown order: EndFrame -> each service closes its
+    connection in on_end -> the transport disconnects last ->
+    cleanup() -> the task leak check.
+  - Signal handling: on SIGINT/SIGTERM, call session.cancel() once; a
+    second signal forces exit.
+  - Resource hygiene: the VAD executor is shut down, sockets are
+    closed, and the LiveKit room is disconnected in every exit path
+    (use try/finally in Session.run).
+
+DONE WHEN
+  Kill each vendor's network mid-call (one at a time): the agent either
+  recovers or ends cleanly, and never hangs.
+
+
+----------------------------------------------------------------------
+PHASE 19: TESTING STRATEGY (runs through all phases)
+----------------------------------------------------------------------
+
+BUILD EARLY (during Phase 2-3):
+  tests/harness.py: run_processor(processor, frames_in, *, expect_down,
+  expect_up, timeout). It wraps the processor in a pipeline with
+  recording sources and sinks, sends StartFrame + your frames +
+  EndFrame, and returns the list of frames seen in each direction. 80%
+  of your tests use this.
+
+FAKES
+  FakeSTT (emits scripted transcripts at scripted times), FakeLLM
+  (streams scripted tokens with delays), FakeTTS (emits N ms of
+  silence per sentence). These let you test interruption and turn
+  logic without vendors, deterministically.
+
+REPLAY TRANSPORT
+  scripts/replay_wav.py: an input processor that reads a WAV file and
+  pushes 20 ms frames at real-time pace, plus a null output. It gives
+  repeatable end-to-end runs and latency measurements without speaking
+  into a microphone.
+
+CONVERSATION EVALS (later)
+  Scripted user turns (TTS-generated audio) played through the replay
+  transport; check the transcripts, the replies and the latency numbers
+  after every change.
+
+
+----------------------------------------------------------------------
+PHASE 20: DEPLOYMENT BASICS
+----------------------------------------------------------------------
+
+  - One Session per conversation. Start simple: one process per
+    session, spawned by a small HTTP service when a room is created
+    (the agent receives the room name and a token). Later, run several
+    sessions per process if CPU allows. VAD and resampling are the main
+    CPU costs.
+  - Containerise; keep the model files in the image; pre-load the VAD
+    model at process start.
+  - Deploy in the same region as your LiveKit server/edge and close to
+    the vendor endpoints.
+  - Logs: one JSON line per turn with the latency breakdown and
+    session id. Dashboards on p50/p90 end-to-end latency and on error
+    rates per vendor.
+
+
+======================================================================
+PART E: FINAL WIRING DIAGRAM
+======================================================================
+
+                    LiveKit room (browser: mic + speaker, AEC)
+                        |                               ^
+             remote audio track                  published track
+                        v                               |
+  +---------------------------------------+             |
+  | 1 LiveKitInput   20 ms, 16 kHz        |             |
+  |   + VAD (executor) -> VADStarted/Stop |             |
+  +---------------------------------------+             |
+        | InputAudioFrame (SYSTEM)                      |
+        v                                               |
+  +---------------------------------------+   wss       |
+  | 2 DeepgramSTT   Finalize on VAD stop  |<====> Deepgram /v1/listen
+  +---------------------------------------+             |
+        | Interim/TranscriptFrame(finalized)            |
+        v                                               |
+  +---------------------------------------+             |
+  | 3 UserAggregator + TurnManager        |--- add_user --> [Context]
+  |   start -> broadcast InterruptionFrame|             |       |
+  |   end   -> ContextFrame               |             |       |
+  +---------------------------------------+             |       |
+        | ContextFrame(snapshot)                        |       |
+        v                                               |       |
+  +---------------------------------------+  HTTPS stream       |
+  | 4 GeminiLLM (+ GeminiAdapter)         |<====> Gemini API    |
+  +---------------------------------------+             |       |
+        | LLMResponseStart, LLMTextFrame*, LLMResponseEnd       |
+        v                                               |       |
+  +---------------------------------------+   wss       |       |
+  | 5 DeepgramTTS + SentenceSplitter      |<====> Deepgram /v1/speak
+  |   Speak/Flush/Clear, turn_id guard    |             |       |
+  +---------------------------------------+             |       |
+        | TTSAudioFrame, SpokenTextFrame, TTSStopped    |       |
+        v                                               |       |
+  +---------------------------------------+             |       |
+  | 6 LiveKitOutput  40 ms chunks         |-------------+       |
+  |   capture_frame / clear_queue         |                     |
+  |   BotStarted/StoppedSpeaking (bcast)  |                     |
+  +---------------------------------------+                     |
+        | SpokenTextFrame (only after playback)                 |
+        v                                                       |
+  +---------------------------------------+                     |
+  | 7 AssistantAggregator                 |--- add_assistant ---+
+  |   tool results -> ContextFrame UP     |
+  +---------------------------------------+
+
+  Upstream traffic: ErrorFrame -> Session; ContextFrame (after tool
+  results) -> LLM; BotStarted/Stopped -> UserAggregator (barge-in
+  rules); InterruptionFrame broadcast from 3 reaches 1-2 (upstream)
+  and 4-7 (downstream).
+
+
+======================================================================
+PART F: DEPENDENCY ORDER AT A GLANCE
+======================================================================
+
+  Phase 0  env/smoke tests
+     |
+  Phase 1  frames ---> Phase 2 processor ---> Phase 3 pipeline/session
+                                                 |
+                              Phase 4 observers <+   Phase 19 harness
+                                                 |    (start now)
+  Phase 5 audio utils ---> Phase 6 LiveKit (echo bot) ---> Phase 7 VAD
+                                                              |
+  Phase 8a ws client ---> Phase 8b STT <----------------------+
+                              |
+  Phase 9 context ---> Phase 10 turns/user agg ---> Phase 11 LLM
+                                                       |
+                   Phase 12 splitter + TTS <-----------+
+                              |
+                   Phase 13 assistant agg ---> Phase 14 E2E bot
+                                                   |
+            Phase 15 interruptions / 16 latency / 17 tools / 18 robust
+                                                   |
+                                          Phase 20 deploy
+
+  A realistic pace for one engineer: about 5-7 weeks to a solid
+  version, with the first end-to-end conversation around week 3.
+
+
+======================================================================
+PART G: PITFALL CHECKLIST
+======================================================================
+
+  [ ] A processor forgets to forward frames it doesn't handle, so
+      StartFrame or EndFrame never reaches the end and the session
+      hangs.
+  [ ] Catching Exception swallows CancelledError, so interruptions
+      silently fail.
+  [ ] Blocking the event loop (sync HTTP, model inference, time.sleep):
+      audio stutters and VAD events arrive late.
+  [ ] Resampling per chunk with a stateless resampler causes clicks.
+  [ ] Odd byte counts in PCM cause noise; keep the carry-over byte.
+  [ ] Output queue too big: interruptions feel slow.
+  [ ] No turn_id guard in TTS: stale audio after an interruption.
+  [ ] Assistant aggregator placed before the output: the context
+      contains unheard text.
+  [ ] Bot hears itself (no AEC): self-interruptions. Test with
+      headphones and a browser client.
+  [ ] New socket per turn: +200-500 ms each turn.
+  [ ] Fixed long silence timeouts (1 s+): the bot feels slow. Short VAD
+      stop + smart end-of-turn instead.
+  [ ] Tool handlers run inline in process_frame: the whole pipeline
+      freezes during the tool call.
+  [ ] Pause/resume logic waiting for a BotStopped that never comes
+      (no audio was produced): deadlock. Always release on
+      interruption.
+  [ ] Timers not cancelled on state change: ghost turn-ends.
+  [ ] Reusing the same frame instance in two directions: shared
+      mutable state bugs. Broadcast creates two new instances.
+
+
+======================================================================
+PART H: WHERE TO LOOK IN PIPECAT WHEN STUCK (read, don't copy)
+======================================================================
+
+  Phase 1   frames/frames.py (top of file)
+  Phase 2   processors/frame_processor.py (queues, _start_interruption)
+  Phase 3   pipeline/pipeline.py, pipeline/worker.py
+  Phase 4   observers/base_observer.py, observers/loggers/
+  Phase 5   services/tts_service.py (_stream_audio_frames_from_iterator)
+            transports/base_output.py (chunking)
+  Phase 6   transports/livekit/transport.py, transports/base_input.py,
+            transports/base_output.py
+  Phase 7   audio/vad/vad_analyzer.py, audio/vad/silero.py
+  Phase 8   services/deepgram/stt.py, services/websocket_service.py
+  Phase 9   processors/aggregators/llm_context.py
+  Phase 10  turns/ (user_start, user_stop strategies),
+            processors/aggregators/llm_response_universal.py
+  Phase 11  services/google/llm.py, adapters/services/gemini_adapter.py
+  Phase 12  utils/text/simple_text_aggregator.py, utils/string.py,
+            services/deepgram/tts.py, services/tts_service.py
+  Phase 13  llm_response_universal.py (LLMAssistantAggregator)
+  Phase 15  every _handle_interruption in the files above
+  Phase 16  observers/user_bot_latency_observer.py,
+            services/stt_latency.py
+  Phase 17  services/llm_service.py (register_function,
+            run_function_calls)
+  Phase 18  pipeline/service_switcher.py, websocket_service.py
+  Phase 19  tests/ in the Pipecat repo (look at how they drive a
+            processor with frames)
+
+  Read a file to understand the IDEA, close it, and write your own
+  version from the responsibilities listed in this plan.
+
+
+

@@ -1,0 +1,477 @@
+PIPECAT: SYSTEM DESIGN AND DESIGN PHILOSOPHY
+============================================
+
+Source studied : pipecat-ai/pipecat, commit 2967e1c09 (Sep 2026)
+Size           : 634 Python files, ~190k lines under src/pipecat/
+Paths below    : relative to pipecat/src/pipecat/ unless stated otherwise
+Companion      : pipecat_architecture.html (the diagrams)
+
+
+CONTENTS
+--------
+  1. What Pipecat is, in one paragraph
+  2. The architecture in four levels (text diagram)
+  3. A voice pipeline (text diagram)
+  4. Design philosophies: the 16 ideas the code is built on
+  5. Trade-offs these choices create
+  6. How to study the codebase end to end
+  7. Glossary
+
+
+----------------------------------------------------------------------
+1. WHAT PIPECAT IS, IN ONE PARAGRAPH
+----------------------------------------------------------------------
+
+Pipecat is a Python asyncio framework for real-time conversational agents
+(voice, and optionally video). The whole system is one idea applied
+consistently: small units of work called FrameProcessors are chained
+into a Pipeline, and everything that happens (audio, text, "user started
+talking", "stop now", errors, metrics) travels between them as a typed
+message called a Frame. Vendors (Deepgram, Gemini, LiveKit ...) are
+plugged in as processors behind common base classes, so the application
+describes *what* the conversation pipeline is and the framework handles
+timing, ordering, interruption and lifecycle.
+
+
+----------------------------------------------------------------------
+2. THE ARCHITECTURE IN FOUR LEVELS
+----------------------------------------------------------------------
+
+  +------------------------------------------------------------------+
+  | WorkerRunner                              workers/runner.py      |
+  |   one per process; handles SIGINT/SIGTERM; ends when root        |
+  |   workers finish                                                 |
+  |                                                                  |
+  |   +------------------------------------------------------------+ |
+  |   | WorkerBus (pub/sub)   AsyncQueueBus | RedisBus | PgmqBus   | |
+  |   +------------------------------------------------------------+ |
+  |        ^ messages: jobs, bridged frames, end/cancel     ^        |
+  |        |                                                |        |
+  |   +----+-------------------------------------+   +------+------+ |
+  |   | PipelineWorker        pipeline/worker.py |   | LLMWorker   | |
+  |   |  sends StartFrame, watches idle and      |   | UIWorker    | |
+  |   |  heartbeats, fires on_pipeline_* events  |   | BaseWorker  | |
+  |   |                                          |   | (@job RPC)  | |
+  |   |  +------------------------------------+  |   +-------------+ |
+  |   |  | Pipeline (is itself a processor)   |  |                   |
+  |   |  |                                    |  |                   |
+  |   |  | Source -> P1 -> P2 -> ... -> Sink  |  |  downstream  ->   |
+  |   |  |        <-    <-    <-     <-      |  |  upstream    <-   |
+  |   |  +------------------------------------+  |                   |
+  |   |  Observers | TaskManager | Clock         |                   |
+  |   +------------------------------------------+                   |
+  +------------------------------------------------------------------+
+
+  Level 1  WorkerRunner    : process-level owner.
+  Level 2  Worker          : a runnable unit. PipelineWorker is the
+                             common one (it used to be called
+                             PipelineTask).
+  Level 3  Pipeline        : an ordered list of processors, with a
+                             hidden Source and Sink at the ends.
+  Level 4  FrameProcessor  : the unit of work. Everything else is built
+                             from these.
+
+A normal single voice bot uses one runner, one PipelineWorker and one
+Pipeline. You can ignore the bus until you want several cooperating
+agents.
+
+
+----------------------------------------------------------------------
+3. A VOICE PIPELINE (LiveKit + Deepgram + Gemini)
+----------------------------------------------------------------------
+
+    LiveKit room  (user's mic and speaker)
+        |  mic audio                                    ^
+        v                                               |
+    transport.input()      decode, resample to 16 kHz   |
+        |  InputAudioRawFrame                           |
+        v                                               |
+    DeepgramSTTService  <== websocket ==> Deepgram STT  |
+        |  TranscriptionFrame (+ audio passed through)  |
+        v                                               |
+    LLMUserAggregator      VAD, turn start/stop,        |  bot audio
+        |                  broadcasts InterruptionFrame |
+        |                  writes user msg -> LLMContext|
+        |  LLMContextFrame                              |
+        v                                               |
+    GoogleLLMService    <== HTTP stream ==> Gemini API  |
+        |  LLMTextFrame (tokens)                        |
+        v                                               |
+    DeepgramTTSService  <== websocket ==> Deepgram TTS  |
+        |  (sentence aggregator; Speak / Flush / Clear) |
+        |  TTSAudioRawFrame + TTSTextFrame              |
+        v                                               |
+    transport.output()     40 ms chunks  ---------------+
+        |  TTSTextFrame (words actually played)
+        v
+    LLMAssistantAggregator writes spoken reply -> LLMContext
+
+This is examples/getting-started/06-voice-agent.py with your vendors in it.
+
+
+----------------------------------------------------------------------
+4. DESIGN PHILOSOPHIES
+----------------------------------------------------------------------
+
+Each principle is stated, then where it lives in the code, then why it
+was chosen. Together they explain almost every structural decision in
+the repository.
+
+
+4.1  Everything is a Frame
+     ---------------------
+     Where : frames/frames.py (100+ dataclasses)
+     What  : Audio chunks, text tokens, "user started speaking", "the
+             LLM response ended", errors, metrics, settings changes,
+             start and end of the session: all of these are Frames.
+             There is no side channel for control.
+     Why   : One message type means one transport mechanism, one queue
+             discipline, one way to log and observe, and one way to
+             test (push frames in, assert on frames out). Control
+             signals travelling *in band* also keep their order
+             relative to the data. An EndFrame queued after the last
+             TextFrame can never overtake it.
+
+
+4.2  Everything is a FrameProcessor, and pipelines are processors too
+     ----------------------------------------------------------------
+     Where : processors/frame_processor.py, pipeline/pipeline.py,
+             pipeline/parallel_pipeline.py, pipeline/service_switcher.py
+     What  : STT, LLM, TTS, transports, aggregators, filters and even
+             a Pipeline all share one base class with one contract:
+             process_frame() in, push_frame() out.
+     Why   : This is the Composite pattern. Because a Pipeline is a
+             processor, you can nest pipelines, run branches in
+             parallel (ParallelPipeline), or wrap two vendors in a
+             ServiceSwitcher for failover, and the rest of the system
+             never knows. It also means any vendor is replaceable by
+             swapping one list entry.
+
+
+4.3  Two directions of flow
+     ----------------------
+     Where : FrameDirection.DOWNSTREAM / UPSTREAM; push_frame();
+             broadcast_frame()
+     What  : Data moves downstream (input toward output). Feedback moves
+             upstream: errors, function-call results, and requests
+             such as "run the LLM again". Some events are *broadcast*
+             both ways (InterruptionFrame, VAD events) because
+             processors on both sides need them.
+     Why   : A linear chain needs a way for later stages to affect
+             earlier ones without holding direct references to them.
+             Upstream frames keep processors decoupled. Each processor
+             only knows its two neighbours.
+
+
+4.4  Real-time before throughput: priority lanes
+     -------------------------------------------
+     Where : FrameProcessor.__input_frame_task_handler and
+             __process_frame_task_handler; FrameProcessorQueue
+     What  : Each processor has two queues and two asyncio tasks.
+             SystemFrames (StartFrame first, then other system frames)
+             are handled immediately by the input task. DataFrames and
+             ControlFrames go to a FIFO process queue handled strictly
+             one at a time.
+     Why   : In a conversation, some signals must never wait: the user
+             interrupting, a cancel, microphone audio. That is why
+             InputAudioRawFrame is a SystemFrame (VAD must see the user
+             even while the LLM stage is busy), while
+             OutputAudioRawFrame is a DataFrame (it must play in order
+             and must be discardable).
+
+
+4.5  Interruption is a first-class, cooperative operation
+     ----------------------------------------------------
+     Where : FrameProcessor._start_interruption; each service's
+             _handle_interruption; BaseOutputTransport.handle_interruptions;
+             Frame.interruptible
+     What  : When the user starts speaking, one InterruptionFrame is
+             broadcast. Every processor reacts locally: its process
+             task is cancelled and recreated, its queue is emptied, and
+             then it clears its own state. The LLM stream closes, TTS
+             sends Clear to the vendor, and the output transport drops
+             buffered audio and clears LiveKit's buffer. Frames that
+             must survive (FunctionCallResultFrame, EndFrame) are marked
+             interruptible=False and are kept.
+     Why   : Natural conversation requires barge-in. Making it a
+             broadcast frame instead of a central controller means each
+             component owns its own cleanup, and new components get
+             interruption support by overriding one method.
+
+
+4.6  Stream everything, never wait for "complete"
+     --------------------------------------------
+     Where : TTSService + utils/text/simple_text_aggregator.py;
+             websocket STT and TTS services; 40 ms output chunks in
+             transports/base_output.py
+     What  : STT streams interim results. The LLM streams tokens. TTS
+             starts on the first complete sentence (confirmed by one
+             character of lookahead). Audio plays from the first bytes
+             received, in 40 ms chunks.
+     Why   : Latency in voice AI is additive across stages. Pipelining
+             the stages, so each starts on its predecessor's first
+             output, turns a sum of full durations into a sum of
+             time-to-first-output. Small output chunks also make
+             interruption fast, because work can only be cancelled
+             between chunks.
+
+
+4.7  Vendor neutrality through base classes, adapters and a universal context
+     ------------------------------------------------------------------------
+     Where : services/{stt,llm,tts}_service.py; adapters/;
+             processors/aggregators/llm_context.py; services/settings.py
+     What  : The conversation is stored once, in LLMContext, in a
+             provider-neutral format. Tools are described once with
+             FunctionSchema / ToolsSchema. Each LLM service has an
+             adapter (e.g. GeminiLLMAdapter) that converts context and
+             tools to its vendor's format at call time. Settings are
+             typed objects that can be changed live by sending an
+             *UpdateSettingsFrame.
+     Why   : 60+ vendors share one set of behaviours (metrics,
+             interruption, function calling, turn handling). Switching
+             vendors, or failing over mid-call, does not require
+             translating the conversation history.
+
+
+4.8  Policy as pluggable strategy objects
+     ------------------------------------
+     Where : audio/vad/ (VADAnalyzer), audio/turn/ (Smart Turn),
+             turns/user_start, turns/user_stop, turns/user_mute,
+             utils/text/ (aggregators, filters),
+             pipeline/service_switcher.py (switch strategies)
+     What  : Decisions that vary by product are small objects owned by
+             a processor rather than subclasses of it. Examples: when a
+             user turn begins or ends, when to mute the user, how to
+             split text into sentences, which service to fail over to.
+     Why   : Composition over inheritance. You can combine a VAD start
+             strategy, a min-words start strategy and a Smart Turn stop
+             strategy without writing a new aggregator class. It also
+             keeps the experimental parts (turn detection changes
+             often) separate from the stable plumbing.
+
+
+4.9  The context records what the user heard
+     ---------------------------------------
+     Where : LLMAssistantAggregator placed *after* transport.output()
+     What  : The assistant's message is built from TTSTextFrames that
+             passed the output transport, i.e. words that were
+             actually played.
+     Why   : If the user interrupts mid-sentence, the LLM's memory
+             should match what the user heard, not what the LLM
+             generated. This is a small placement decision with a big
+             effect on conversation quality.
+
+
+4.10 Lifecycle is expressed with frames too
+     --------------------------------------
+     Where : StartFrame, EndFrame, StopFrame, CancelFrame; PipelineWorker
+     What  : StartFrame (highest priority) carries configuration such as
+             sample rates to every processor. EndFrame is a
+             ControlFrame, so it waits behind pending work: a graceful,
+             draining shutdown. CancelFrame is a SystemFrame, so it
+             skips the queues: an immediate stop. StopFrame stops the
+             pipeline but keeps connections open.
+     Why   : Graceful and immediate shutdown fall out of the same queue
+             rules as everything else. No separate shutdown protocol is
+             needed.
+
+
+4.11 Managed, single-threaded concurrency
+     ------------------------------------
+     Where : utils/asyncio/task_manager.py; FrameProcessor.create_task /
+             cancel_task; VADAnalyzer's ThreadPoolExecutor
+     What  : Everything runs on one asyncio event loop. Background work
+             must be created through self.create_task() so the
+             TaskManager can track it and cancel it at shutdown (and
+             report dangling tasks). CPU-heavy work such as VAD
+             inference runs in a thread executor.
+     Why   : A single event loop avoids locks and data races between
+             processors. Central task tracking prevents the most common
+             asyncio bug: tasks leaking after a session ends. The cost
+             is the rule "never block the loop" (see 5).
+
+
+4.12 Hook in with events, not subclassing
+     ------------------------------------
+     Where : utils/base_object.py (BaseObject, @event_handler)
+     What  : Almost every object exposes named events: a transport's
+             on_client_connected, a worker's on_pipeline_finished, a
+             TTS service's on_connected, a user aggregator's
+             on_user_turn_started, and so on. Handlers run as
+             background tasks by default, or synchronously when
+             registered with sync=True.
+     Why   : Application code (kick off the greeting, end the call on
+             disconnect, log turns) stays in the bot script and does
+             not require subclassing framework classes.
+
+
+4.13 Observe without touching the pipeline
+     -------------------------------------
+     Where : observers/, metrics/, utils/tracing/
+     What  : Observers see every frame push and every frame processed,
+             but cannot change them. Services emit MetricsFrames (TTFB,
+             processing time, usage). OpenTelemetry tracing is
+             optional.
+     Why   : Debugging real-time systems needs visibility, but adding
+             logging processors would change timing and ordering.
+             Observers keep instrumentation out of the data path.
+
+
+4.14 Failures are data, and resilience is layered
+     --------------------------------------------
+     Where : ErrorFrame and push_error(); processor "usability";
+             ProcessorUnusablePolicy (pipeline/worker.py);
+             ServiceSwitcher failover; websocket_service.py reconnect
+             with exponential backoff; QuickFailureTracker
+     What  : Errors travel upstream as frames and are non-fatal by
+             default, so the application decides what to do. A service
+             that keeps failing is marked unusable, and the worker then
+             continues, ends or cancels according to policy. Websocket
+             services reconnect with backoff but give up after repeated
+             quick failures.
+     Why   : A live call should survive a flaky vendor. Surfacing errors
+             as frames gives the application room to recover (switch
+             vendor, apologise to the user) instead of crashing.
+
+
+4.15 Keep connections warm, and measure latency
+     ------------------------------------------
+     Where : Deepgram STT and TTS services (persistent sockets,
+             KeepAlive, Clear instead of reconnect);
+             services/stt_latency.py (measured P99 per vendor);
+             observers/user_bot_latency_observer.py
+     What  : Connections open at setup and live for the session.
+             Timeouts are based on measured vendor latencies (e.g.
+             Deepgram TTFS P99 = 0.35 s) rather than guesses.
+     Why   : Connection setup (DNS + TCP + TLS + handshake) costs
+             hundreds of milliseconds per turn if repeated. Measured
+             budgets let turn detection wait exactly as long as needed.
+
+
+4.16 Same model from one process to many machines
+     --------------------------------------------
+     Where : workers/, bus/, registry/, pipeline/job_context.py
+     What  : Several agents cooperate by sending typed bus messages:
+             jobs (request/response, streaming, groups) and bridged
+             frames. The bus implementation decides whether this is
+             in-process (AsyncQueueBus) or distributed (Redis, Pgmq).
+     Why   : Multi-agent designs (handoff, a supervisor with
+             specialists, a UI worker) reuse the same worker code
+             whether they run together or across machines. Only the
+             bus changes.
+
+
+Two engineering conventions are also visible everywhere:
+
+  * Dataclasses for hot-path data (frames, internal containers) and
+    Pydantic models for configuration and external data (params,
+    settings, metrics). Speed where it matters, validation where it
+    helps.
+  * Strict deprecation discipline: old names (PipelineTask,
+    PipelineRunner, aggregate_sentences ...) keep working with a warning
+    that names the replacement and the removal version. Public APIs
+    change without breaking users overnight.
+
+
+----------------------------------------------------------------------
+5. TRADE-OFFS THESE CHOICES CREATE
+----------------------------------------------------------------------
+
+  * Never block the event loop. One slow process_frame() stalls every
+    frame behind it. Slow work must go to create_task() or a thread.
+  * Order in the pipeline list is semantics. Putting the assistant
+    aggregator before the output transport, or STT after the user
+    aggregator, silently changes behaviour.
+  * Many frame types. The learning curve is learning which frames
+    exist, which kind each is (system, data or control), and who emits
+    and consumes each one.
+  * Interruption correctness is distributed. Every stateful processor
+    must clear its own state in its interruption handler. A custom
+    processor that forgets this leaks stale output after barge-in.
+  * Python and GIL limits. Heavy DSP or ML inference inside the process
+    competes with the event loop. Pipecat pushes models to threads or
+    external services for this reason.
+  * Indirection. Following one behaviour can mean reading a service, its
+    base class, a mixin, a strategy object and an adapter. The class
+    tree in the HTML page is the map for this.
+
+
+----------------------------------------------------------------------
+6. HOW TO STUDY THE CODEBASE END TO END
+----------------------------------------------------------------------
+
+Do these in order. Run code at every step, not only read it.
+
+  1. frames/frames.py: read the base classes at the top (Frame,
+     SystemFrame, DataFrame, ControlFrame, the interruptible flag).
+     Skim the subclass names only.
+  2. processors/frame_processor.py: read queue_frame, push_frame, the
+     two task handlers, _start_interruption and broadcast_frame. Redraw
+     the "inside a processor" diagram from memory.
+  3. Run examples/getting-started/01-say-one-thing.py and
+     02-llm-say-one-thing.py with DebugLogObserver (observers/loggers/)
+     or loguru at TRACE level, and watch frames move.
+  4. pipeline/pipeline.py and pipeline/worker.py: Source and Sink, how
+     StartFrame, EndFrame and CancelFrame travel, idle and heartbeat
+     monitors, worker events.
+  5. Run examples/getting-started/06-voice-agent.py, then swap in
+     LiveKit, Deepgram and Gemini one at a time.
+  6. Follow one user turn through the code: input transport, then
+     LLMUserAggregator (VAD, turns/ strategies), then LLMService, then
+     TTSService._process_text_frame, then the output transport's audio
+     task. Use the timeline diagram as the checklist.
+  7. Context and tools: LLMContext, LLMContextAggregatorPair,
+     adapters/services/gemini_adapter.py, register_function,
+     run_function_calls. Run 07-function-calling.py.
+  8. Write your own processor (e.g. count user turns, or uppercase
+     TextFrames), insert it, and test what happens on interruption.
+  9. observers/user_bot_latency_observer.py and
+     turn_tracking_observer.py. Enable enable_metrics to see TTFB per
+     service.
+ 10. Only then: workers/, bus/, pipeline/job_context.py, and
+     examples/multi-worker/local-handoff.
+
+Tip: tests/ has focused tests per component showing exactly which
+frames go in and come out. When a class is confusing, read its test
+first. The repository's own AGENTS.md is a good one-page summary of
+conventions.
+
+
+----------------------------------------------------------------------
+7. GLOSSARY
+----------------------------------------------------------------------
+
+  Frame              A typed message moving through the pipeline.
+  SystemFrame        Frame handled immediately; never dropped on
+                     interruption.
+  DataFrame          Content frame (text, output audio); ordered;
+                     dropped on interruption.
+  ControlFrame       Ordered signal frame (EndFrame, TTSStartedFrame
+                     ...).
+  FrameProcessor     A unit of work with its own queues and tasks.
+  Pipeline           Ordered processors plus a hidden Source and Sink;
+                     itself a processor.
+  PipelineWorker     Runs one pipeline and owns its lifecycle (was
+                     PipelineTask).
+  WorkerRunner       Runs workers; owns the bus and registry (was
+                     PipelineRunner).
+  WorkerBus          Pub/sub channel between workers, local or
+                     networked.
+  Job                Request/response RPC between workers over the bus.
+  Transport          Connection to the outside world, split into input()
+                     and output() processors.
+  Service            A processor wrapping a vendor API (STT, LLM, TTS,
+                     ...).
+  Adapter            Converts the universal LLMContext and tools to one
+                     vendor's format.
+  LLMContext         Provider-neutral conversation history plus tools.
+  Aggregator         Collects frames into a larger unit (a user turn,
+                     a spoken reply, a sentence).
+  Turn strategy      A pluggable rule for when a user turn starts, stops
+                     or is muted.
+  Interruption       User barge-in: an InterruptionFrame broadcast that
+                     cancels in-flight work.
+  Observer           A read-only tap on frame flow, used for logs,
+                     metrics and RTVI.
+  RTVI               Real-Time Voice Interface, the client-to-bot
+                     protocol.

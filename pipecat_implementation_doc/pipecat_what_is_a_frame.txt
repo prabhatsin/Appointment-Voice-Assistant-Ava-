@@ -1,0 +1,147 @@
+PIPECAT: WHAT DOES "FRAME" MEAN?
+================================
+
+QUESTION
+--------
+Why does the word "frame" appear so many times in Pipecat, attached to so
+many things? Is there a reason? What does it even mean? For example:
+FrameProcessor, LLMContextFrame, etc.
+
+
+ANSWER
+------
+"Frame" is Pipecat's word for ONE MESSAGE. Everything that moves through
+the pipeline is wrapped in one, which is why the word is everywhere.
+
+
+1. What a frame is
+------------------
+
+A frame is a small Python dataclass: a labelled envelope with some data
+inside. For example:
+
+    @dataclass
+    class TextFrame(DataFrame):
+        text: str            # the content
+
+    @dataclass
+    class InputAudioRawFrame(SystemFrame):
+        audio: bytes         # ~20 ms of microphone audio
+        sample_rate: int
+        num_channels: int
+
+The CLASS NAME is the label. It tells every component what kind of
+message this is. The FIELDS are the contents.
+
+All frame types are defined in: pipecat/src/pipecat/frames/frames.py
+
+
+2. Why the name "frame"
+-----------------------
+
+It comes from audio and video, where a stream is cut into small pieces
+called frames. A video has 30 frames per second; audio is sent in chunks
+of about 20 ms. Pipecat began as a real-time audio/video framework (it's
+built by Daily, a video-calling company) and took the term from media
+tools like GStreamer. Later it used the same word for EVERY message, not
+just audio: text, events, commands and errors.
+
+
+3. Why use one word for everything
+----------------------------------
+
+This is the core design idea. Pipecat has ONE way to communicate:
+
+    Components never call each other directly. They only pass frames
+    to their neighbour.
+
+So "user started talking", "here's a word from the LLM", "stop now" and
+"an error happened" all travel the same way, in order, through the same
+queues. That gives Pipecat:
+
+  - one mechanism to learn,
+  - one place to log or observe everything,
+  - one way to test: push frames in, check which frames come out.
+
+
+4. How to read the names
+------------------------
+
+Once you know the pattern, every name decodes itself:
+
+  Frame                  The base class for any message.
+
+  FrameProcessor         A component that RECEIVES frames, does work, and
+                         SENDS frames on. STT, LLM, TTS, transports and
+                         aggregators are all FrameProcessors.
+
+  InputAudioRawFrame     A message carrying raw microphone audio.
+
+  TranscriptionFrame     A message carrying text from speech-to-text.
+
+  LLMContextFrame        A message carrying the conversation history,
+                         meaning "LLM, please respond to this".
+
+  LLMTextFrame           A message carrying a few tokens the LLM just
+                         produced.
+
+  TTSAudioRawFrame       A message carrying synthesized speech audio.
+
+  InterruptionFrame      A signal meaning "the user interrupted, stop
+                         what you're doing".
+
+  EndFrame / CancelFrame Signals meaning "shut down gracefully" /
+                         "shut down now".
+
+  ErrorFrame             A message reporting that something failed.
+
+Rule of thumb:
+  "SomethingFrame" = a message about "something"
+  "FrameProcessor" = a worker on the assembly line
+
+
+5. An analogy: a factory assembly line
+--------------------------------------
+
+  - FRAMES are the items on the conveyor belt. Some are products (audio,
+    text); some are notes from the supervisor ("stop the line", "new
+    order").
+  - FRAMEPROCESSORS are the stations. Each one picks up an item, does its
+    job, and puts something on the belt for the next station.
+  - The PIPELINE is the belt itself, with the stations in order.
+
+In a voice turn:
+
+  [mic] --InputAudioRawFrame--> STT
+        --TranscriptionFrame--> user aggregator
+        --LLMContextFrame-----> LLM
+        --LLMTextFrame--------> TTS
+        --TTSAudioRawFrame----> output transport --> [speaker]
+
+Audio frames go into the STT station and transcription frames come out.
+The user aggregator then puts out a context frame, and the LLM turns it
+into text frames. TTS turns text frames into audio frames, and the output
+station plays them.
+
+
+6. The three kinds of frame
+---------------------------
+
+Every frame is one of three kinds. The kind decides how urgently it's
+handled:
+
+  SystemFrame   Urgent. It skips the line and is never thrown away.
+                Examples: InterruptionFrame, InputAudioRawFrame,
+                StartFrame, CancelFrame.
+
+  DataFrame     Content. It's handled in order and discarded if the user
+                interrupts.
+                Examples: LLMTextFrame, TextFrame, TTSAudioRawFrame.
+
+  ControlFrame  Ordered signals.
+                Examples: LLMFullResponseStartFrame / EndFrame
+                ("LLM response started/ended"), EndFrame ("end of
+                session").
+
+Section 3 of pipecat_architecture.html shows how a processor treats each
+kind.

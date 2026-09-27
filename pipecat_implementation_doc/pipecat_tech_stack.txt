@@ -1,0 +1,240 @@
+PIPECAT: WHICH TECHNOLOGY IS USED FOR WHAT, AND WHY
+===================================================
+
+Question: Which technology is used for each part (e.g. are queues done
+with Redis? where are websockets used?), and why was each chosen?
+
+Checked against Pipecat's pyproject.toml (commit 2967e1c09).
+
+
+FIRST, A CORRECTION
+-------------------
+Pipecat's queues are NOT Redis. The queues inside the pipeline are plain
+in-memory Python queues (asyncio.Queue). Redis, or Postgres through the
+pgmq package, is only used in the optional multi-agent layer, when
+agents run in different processes or machines. For a single-agent bot
+you need no Redis, no Kafka and no database.
+
+
+======================================================================
+1. CORE ENGINE
+======================================================================
+
+Concurrency (everything runs "at the same time")
+  Tech : Python asyncio, one event loop
+  Why  : Voice work is mostly waiting on the network (sockets, APIs). A
+         single-threaded event loop handles thousands of waits cheaply,
+         with no locks between components.
+
+Queues inside each processor
+  Tech : asyncio.Queue / asyncio.PriorityQueue (in memory)
+  Why  : Frames only move within one process, so a network queue would
+         just add latency. The priority queue lets urgent frames
+         (interrupt, microphone audio) skip ahead.
+
+Frames (messages)
+  Tech : Python @dataclass
+  Why  : Created ~50+ times per second. Dataclasses are lightweight and
+         have no validation overhead.
+
+Config and settings objects
+  Tech : Pydantic
+  Why  : Checks user-supplied settings (wrong type, missing field) once
+         at startup, where validation is worth the cost.
+
+Background task tracking
+  Tech : Pipecat's own TaskManager on top of asyncio tasks
+  Why  : Makes sure every task is cancelled on shutdown or interruption,
+         so nothing leaks.
+
+CPU-heavy work (VAD model)
+  Tech : ThreadPoolExecutor via run_in_executor
+  Why  : Model inference would block the event loop; a thread keeps
+         audio flowing meanwhile.
+
+Logging
+  Tech : loguru
+  Why  : Simple structured logs with little setup.
+
+Secrets
+  Tech : python-dotenv (.env file)
+  Why  : Keeps API keys out of the code.
+
+
+======================================================================
+2. TRANSPORT (GETTING AUDIO IN AND OUT)
+======================================================================
+
+Real-time audio to/from the user
+  Tech : WebRTC, via LiveKit (livekit SDK) or Daily or aiortc
+  Why  : Built for live media: runs over UDP, tolerates packet loss,
+         uses the Opus codec, and gets browser echo cancellation.
+         Websockets over TCP stall on packet loss, which hurts live
+         voice.
+
+Room access tokens
+  Tech : livekit-api (JWT tokens)
+  Why  : LiveKit rooms need a signed token that says who may join.
+
+Phone calls (Twilio, Plivo, Telnyx)
+  Tech : WebSockets + serializers
+  Why  : Phone providers stream call audio over a websocket in their own
+         format. Serializers convert it (often mu-law 8 kHz) to and from
+         frames.
+
+Client <-> bot app messages (RTVI)
+  Tech : WebRTC data channel or websocket; protobuf for some serializers
+  Why  : Sends small messages like transcripts and "bot is speaking" to
+         the app UI; protobuf keeps them compact.
+
+Dev server for rooms and bot launch
+  Tech : FastAPI + Uvicorn
+  Why  : A small async web server that creates rooms and starts a bot
+         per session.
+
+
+======================================================================
+3. AI SERVICES
+======================================================================
+
+STT (Deepgram)
+  Tech : WebSocket (Deepgram SDK)
+  Why  : Two-way and long-lived: audio goes up continuously while
+         transcripts come down, over one connection kept open all
+         session. HTTP would mean a new request per chunk.
+
+TTS (Deepgram)
+  Tech : WebSocket (websockets library)
+  Why  : Send text sentence by sentence and receive audio as it's
+         generated. You can also send "Clear" mid-stream to interrupt.
+
+TTS via HTTP (some vendors)
+  Tech : aiohttp with a shared session and chunked streaming
+  Why  : For vendors without websockets: stream the response body so
+         playback starts before the download ends, and reuse pooled
+         connections.
+
+LLM (Gemini)
+  Tech : HTTPS streaming via google-genai (async client)
+  Why  : One request per turn, streamed back token by token. There's no
+         need for a two-way socket, because the request is sent once and
+         only the reply streams.
+
+Tool schemas
+  Tech : Pipecat's ToolsSchema + a per-provider adapter
+  Why  : Describe a tool once; the adapter converts it to Gemini, OpenAI
+         or Anthropic format.
+
+
+======================================================================
+4. AUDIO PROCESSING
+======================================================================
+
+Audio format everywhere
+  Tech : 16-bit PCM (raw bytes)
+  Why  : Simplest format: no decoding, easy to slice and mix, and what
+         STT/TTS APIs accept.
+
+Array math on audio
+  Tech : NumPy
+  Why  : Fast volume calculation, mixing and format conversion.
+
+Resampling (48k <-> 16k <-> 24k)
+  Tech : soxr (also resampy)
+  Why  : High-quality, fast streaming resampling that keeps state
+         between chunks, so there are no clicks.
+
+Voice activity detection
+  Tech : Silero VAD, an ONNX model run with onnxruntime
+  Why  : A small, accurate neural model that runs on CPU in about a
+         millisecond per 32 ms window.
+
+Turn-end detection
+  Tech : Smart Turn model, via onnxruntime
+  Why  : Predicts from the audio whether the user has finished speaking,
+         which beats a fixed silence timeout.
+
+Reading/writing audio files
+  Tech : soundfile
+  Why  : WAV/FLAC input and output for recordings and tests.
+
+Loudness
+  Tech : loudness
+  Why  : Measures volume for VAD gating and normalisation.
+
+
+======================================================================
+5. TEXT PROCESSING
+======================================================================
+
+Sentence splitting before TTS
+  Tech : sentencex
+  Why  : Knows abbreviations ("Dr.") and decimals ("3.14") in many
+         languages, so TTS doesn't split in the wrong place.
+
+Numbers to words
+  Tech : num2words
+  Why  : Some TTS voices read "23" badly; converting to "twenty-three"
+         fixes it.
+
+Markdown removal
+  Tech : Markdown
+  Why  : LLMs output **bold** and bullet lists that shouldn't be read
+         aloud.
+
+
+======================================================================
+6. OBSERVABILITY AND RESILIENCE
+======================================================================
+
+Frame-level monitoring
+  Tech : Pipecat's Observers
+  Why  : See every frame without adding stages that would change timing.
+
+Distributed tracing
+  Tech : OpenTelemetry (optional)
+  Why  : Per-turn traces with timing for each service, viewable in
+         Jaeger, Honeycomb, etc.
+
+Retries/reconnects
+  Tech : Pipecat's own exponential backoff (plus tenacity for LiveKit)
+  Why  : Automatically recover from flaky networks.
+
+
+======================================================================
+7. ONLY FOR MULTI-AGENT (YOU CAN SKIP)
+======================================================================
+
+In-process agent bus
+  Tech : asyncio queues (AsyncQueueBus)
+  Why  : Agents in the same process talk through memory.
+
+Cross-process/machine agent bus
+  Tech : Redis (pub/sub) or Postgres + pgmq (asyncpg)
+  Why  : This is the one place a network message system is needed:
+         agents in different processes must share messages.
+
+
+======================================================================
+8. WHAT YOUR OWN SINGLE-AGENT BUILD NEEDS
+======================================================================
+
+  - asyncio (queues, tasks)
+  - livekit and livekit-api packages
+  - websockets for Deepgram STT and TTS (or the Deepgram SDK)
+  - google-genai for Gemini
+  - numpy and soxr for audio
+  - onnxruntime + the Silero model for VAD
+  - pydantic for config
+  - python-dotenv for secrets
+  - pytest-asyncio for tests
+  - optionally: sentencex, OpenTelemetry, FastAPI (to launch sessions)
+
+
+RULE OF THUMB BEHIND THESE CHOICES
+----------------------------------
+  Inside one process ................................ memory (asyncio)
+  Live media to a person ............................ WebRTC
+  Continuous two-way streams to a vendor ............ websockets
+  One request with a streamed reply ................. HTTP streaming
+  Across machines ................................... Redis or Postgres
