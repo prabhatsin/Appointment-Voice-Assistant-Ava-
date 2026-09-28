@@ -13,11 +13,13 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
 
     async def handle_turn(transcript):
         user_stoppeda_at=time.time()
+        await cancel_active_turn(active_turn, audio_source, tts)
         active_turn["process_task"]=asyncio.ensure_future(process_transcript(transcript,audio_source,user_stoppeda_at,tts,active_turn))
 
     stt_on_turn_end(handle_turn)
 
     audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1)
+    
     async def forward_audio():
         '''
         this function continuously pulls audio frames from the participant's microphone (via audio_stream) 
@@ -27,6 +29,30 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
             raw=bytes(event.frame.data)
             await send_audio(raw)
     # send_audio calls connection.send_media ,sending the raw bytes over the already-open WebSocket to Deepgram's servers.
+    await asyncio.gather(forward_audio(),stt_register_listener())
+    # await asyncio.gather(a(), b()): starts a and b concurrently, but the await in front of it pauses your function until both finish.
+    await stt_close()
+    #TODO: If one of these ends by crashing, gather raises the exception and stt_close() is skipped, so the connection never gets closed cleanly. That's why a try/finally (or TaskGroup)
+
+
+#! We could have defined this cancel_active_turn outside handle conversation not because of any reason its simply , design choice 
+# We could have defined it inside also , and it would have worked same ,
+async def cancel_active_turn(active_turn,audio_source,tts):
+    #active_turn is the shared dict holding the two running tasks. We'll cancel whatever is stored in it.
+    #audio_source is Ava's outgoing audio pipe. We'll empty its queue so old audio stops playing.
+    #tts is the PersistentTTS object. We'll tell it to stop generating audio.
+    for key in ("process_task","soeaker_task"):
+        task=active_turn[key]
+        if task:
+            # It only tells you a task exists,not whether it's still running
+            # A finished task is still a Task object, so it's still true. That's fine,because cancelling a finished task does nothing.
+            task.cancel()
+    audio_source.clear_queue() # wipes audio already handed to LiveKit but not yet played.
+    await tts.stop() 
+    # Sends Deepgram the Clear message so it stops generating audio for the old sentences.
+
+
+
 
 
 
@@ -50,8 +76,8 @@ participant)) — you don't create it yourself,
 
 #? What does ,stt_on_turn_end(handle_turn do , ?? 
 '''
-->This takes whatever you pass in — here, (your handle_turn)function — and stores it into that other file's (stt_stream_final)
-on_turn_end variable.
+->This takes whatever you pass in — here, (your handle_turn)function — and stores it into that other file's 
+(stt_stream_final) on_turn_end variable.
 -> after this line runs ,stt_stream_final.py's on_turn_end variable now points at your function.
 -> This on_turn_end refers to that file's own variable — which, after your registration call, now holds a
  reference to your function. So when a real EndOfTurn message arrives, Deepgram's SDK triggers 
