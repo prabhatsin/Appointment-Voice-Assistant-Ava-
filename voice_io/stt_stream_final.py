@@ -31,6 +31,7 @@ def stt_on_turn_end(callback):
 
 
 async def on_message(message):
+    print("DEBUG: raw message type:", getattr(message, "type", None), getattr(message, "event", None))
     if message.type=="TurnInfo" and message.transcript:
         if message.event=="Update":
             pass

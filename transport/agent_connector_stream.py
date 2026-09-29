@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from livekit import rtc
 from transport.token_server import generate_token, ROOM_NAME
 from transport.livekit_session_stream import register_audio_handlers,setup_audio_output
-from transport.livekit_session_stream import conversation_history
+from transport.conversation_handler import conversation_history
 
 from voice_io.tts_stream import PersistentTTS
 
@@ -37,7 +37,7 @@ async def main():
 
     def on_participant_connected(participant: rtc.RemoteParticipant):
         logging.info(f"Participant joined: {participant.identity}")
-        # conversation_history.clear()
+        conversation_history.clear()
 
     @room.on("participant_disconnected")
     def on_participant_disconnected(participant: rtc.RemoteParticipant):
