@@ -1,0 +1,38 @@
+So why did it become such a big deal?
+
+I'd summarize the differentiator as:
+
+OpenClaw tries to turn an LLM agent into an always-on personal computer operator, rather than merely providing an agent that answers a request.
+
+The architecture is roughly:
+
+                  ┌─────────────────────┐
+                  │     Many channels   │
+                  │ WhatsApp / Slack... │
+                  └──────────┬──────────┘
+                             ↓
+                  ┌─────────────────────┐
+                  │       Gateway       │
+                  │  always-on control  │
+                  └──────────┬──────────┘
+                             ↓
+                  ┌─────────────────────┐
+                  │    Agent Runtime    │
+                  │                     │
+                  │ LLM                 │
+                  │ Agent Loop          │
+                  │ Tools               │
+                  │ Memory              │
+                  │ Sessions            │
+                  │ Skills              │
+                  │ Multi-agent routing │
+                  └──────────┬──────────┘
+                             ↓
+                  ┌─────────────────────┐
+                  │ Real-world actions  │
+                  │ Files / Shell / API │
+                  │ Browser / Services  │
+                  └─────────────────────┘
+
+
+Explore this and try to0 build something of this nature 
