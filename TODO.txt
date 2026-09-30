@@ -53,3 +53,8 @@ Explore: The Pinned chat in claude asyncio_python_understanding
 # Setup the Adarsh's code , locally , run claudecode on it and understand how latency came  under 1 second,
 
 # read the Intro to MCP by claude , (Bookmarked it)
+
+----------------------------------------------------------------------------
+Explore this pinned chat called question_answer_on_voice_ai
+
+-------------------------------------------------------------------------------

@@ -21,6 +21,8 @@ vad_buffer=b""
 #!The problem it solves:
 Silero VAD only accepts audio in exact pieces of 512 samples (1024 bytes). LiveKit 
 doesn't deliver audio in that size. It sends small frames, often about 10ms each, which is 160 samples 
+#? Question : How does livekit came in the picture here , i mean  
+
 (320 bytes). Those numbers don't divide evenly, so you can't hand each frame straight to the model.
 
 '''
