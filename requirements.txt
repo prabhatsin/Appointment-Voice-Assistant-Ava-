@@ -5,3 +5,4 @@ livekit-plugins-ai-coustics
 scipy
 sounddevice
 silero-vad
+cerebras_cloud_sdk

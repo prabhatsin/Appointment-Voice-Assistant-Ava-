@@ -15,6 +15,8 @@ The concrete advantage, stated plainly: a class gives you multiple independent c
 you one shared copy — which breaks the moment you need more than one at a time.
 
 '''
+
+
 ctx=None
 connection=None
 on_turn_end=None
@@ -29,6 +31,8 @@ async def stt_connect():
                                               )
     connection=await ctx.__aenter__()
     # we will be using __aenter__() and .__aexit__() manually now 
+
+
 
 #! Learning : Important ,
 
@@ -96,11 +100,10 @@ speech/transcript info, not connection-status messages.
   "Update" — a work-in-progress message
   "EndOfTurn" — Deepgram's signal that says "I'm confident the person has finished their turn/sentence — here's the final, settled transcript, this won't change anymore."
 
-->nessage.transcript - the actual text itself
+->message.transcript - the actual text itself
 the actual text itself. This check (and message.transcript) is just a safety check for "make sure it's not 
 empty" — an EndOfTurn event could theoretically fire with empty text (e.g., background noise falsely 
 detected as a turn), and you don't want to trigger a response to nothing.
-
 
 '''
 async def stt_register_listener():
@@ -115,7 +118,6 @@ async def stt_register_listener():
     connection.on(EventType.MESSAGE,on_message)
     # whenever a MESSAGE event happens on this connection, call on_message
     await connection.start_listening()
-
 
 '''
 ->start_listening() is the function inside Deepgram's SDK that actually reads incoming data off the 

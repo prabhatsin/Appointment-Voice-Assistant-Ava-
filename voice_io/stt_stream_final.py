@@ -1,9 +1,6 @@
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 
-
-
-
 #! When to use class based approach , and when to use normal function based approch , ?? 
 
 # One-line rule: use a class when several functions share state that belongs to one "thing" and you may need 
@@ -11,7 +8,9 @@ from deepgram.core.events import EventType
 
 # Your STT fits: ctx, connection, and on_turn_end are state, send_audio, stt_close, and the rest all use it, 
 # and you need one copy per user.
-SAMPLE_RATE=16000
+
+SAMPLE_RATE=16000 # We are defining it outside the class because its a a variable that stays constant throughout
+# import asyncio
 class STTConnection:
     def __init__(self):
         self.ctx=None
@@ -27,11 +26,9 @@ class STTConnection:
                                                 )
         self.connection=await self.ctx.__aenter__()
 
-
     async def send_audio(self,data:bytes):
         await self.connection.send_media(data)
 
-    
     def stt_on_turn_end(self,callback):
         self.on_turn_end=callback 
 
@@ -44,7 +41,13 @@ class STTConnection:
                 if self.on_turn_end:
                     await self.on_turn_end(message.transcript)
 
+    #! This function receives the transcripts Deepgram sends back for what the user said.
     async def stt_register_listener(self):
+        '''
+        It does two things:
+        i) registers the callback (on_message)
+        ii) keeps reading incoming messages and calls on_message for each one.
+        '''
         self.connection.on(EventType.MESSAGE,self.on_message)
         await self.connection.start_listening()
 
@@ -52,8 +55,6 @@ class STTConnection:
         if self.connection: # Guard :
             # we are useing this if self.ctx as a safeguard , in order to avoid error
             await self.ctx.__aexit__(None,None,None)
-
-
 
 
 
