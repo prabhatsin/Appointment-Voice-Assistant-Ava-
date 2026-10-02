@@ -145,8 +145,6 @@ async def cancel_active_turn(active_turn,audio_source,tts):
 # when ever i barge in and terminal pe "speech confirmed" printed " then things work great otherwise not
 #! Also i faced this issue of i didnt spoke for quite sometime , like few minutes and then spoke so Ava didnt responsed witgh some Error , ...... 
 
-# If i close my mqain script , UI pe button should changed not that i stopped the main script and noting changed , 
-# Because when i restart the script it doesnot work then i have to stop and then start conversation again , ..
 
 
 

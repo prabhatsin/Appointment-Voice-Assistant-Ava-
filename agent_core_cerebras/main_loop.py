@@ -28,6 +28,7 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
             messages=messages,
             tools=tools,
             stream=True,
+            reasoning_effort="none"
         )
 
         tool_calls = {}          # index -> {"id":..., "name":..., "arguments": "..."}
@@ -52,7 +53,7 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
             if delta.content:
                 collected_text += delta.content
                 yield delta.content   # stream text out immediately, chunk by chunk
-        print("tool_calls at end of stream:", tool_calls)
+        # print("tool_calls at end of stream:", tool_calls)
         if tool_calls:
             # Step 1: append the assistant turn that triggered the tool call(s)
             messages.append({

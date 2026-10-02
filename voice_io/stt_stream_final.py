@@ -38,7 +38,9 @@ class STTConnection:
         if message.type=="TurnInfo" and message.transcript:
             if message.event=="Update":
                 print("You:", message.transcript)
+                
             elif message.event=="EndOfTurn":
+                # print("You:", message.transcript)
                 if self.on_turn_end:
                     await self.on_turn_end(message.transcript)
 

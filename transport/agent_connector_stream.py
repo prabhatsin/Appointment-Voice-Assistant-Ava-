@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 from livekit import rtc
 from transport.token_server import generate_token, ROOM_NAME
 from transport.livekit_session_stream import register_audio_handlers,setup_audio_output
-from transport.conversation_handler import conversation_history
-
+from transport.conversation_handler import conversation_history, handle_conversation
+import signal
 from voice_io.tts_stream import PersistentTTS
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -21,10 +21,9 @@ events (participants joining, tracks appearing) → then sit and do nothing itse
 registered handlers drive everything from here on.
 '''
 
-
-
 async def main():
     room = rtc.Room() 
+    shutdown_event = asyncio.Event()
 
     @room.on("participant_connected")
 
@@ -35,6 +34,8 @@ async def main():
     @room.on("participant_disconnected")
     def on_participant_disconnected(participant: rtc.RemoteParticipant):
         logging.info(f"Participant left: {participant.identity}")
+        conversation_history.clear()
+        #TODO: Manage the Memory instead this clear history behavior , plug in a memory system , 
 
 
     token = generate_token(ROOM_NAME, "ava-agent")
@@ -49,10 +50,37 @@ async def main():
     await tts.connect()
 
     audio_source = await setup_audio_output(room)
-
     register_audio_handlers(room, audio_source,tts)
 
-    await asyncio.Event().wait()
+
+     # --- NEW: handle participants already present before the agent joined ---
+    for identity, participant in room.remote_participants.items():
+        logging.info(f"Found already-connected participant: {identity}")
+        conversation_history.clear()
+
+    for track_pub in participant.track_publications.values():
+        if track_pub.track is not None and track_pub.track.kind == rtc.TrackKind.KIND_AUDIO:
+            logging.info(f"Manually starting conversation handler for existing track from {identity}")
+            asyncio.ensure_future(handle_conversation(track_pub.track, audio_source, tts))
+
+    # await asyncio.Event().wait()
+    # --- NEW: handle Ctrl+C / kill ---
+    loop = asyncio.get_running_loop()
+
+    def handle_shutdown():
+        logging.info("Shutdown signal received, disconnecting agent from room...")
+        shutdown_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, handle_shutdown)
+
+    await shutdown_event.wait()  # blocks here normally, releases on Ctrl+C/kill
+
+    await tts.close()
+    await room.disconnect()
+    logging.info("Ava disconnected cleanly, exiting")
+
+
 
 
 if __name__ == "__main__":
