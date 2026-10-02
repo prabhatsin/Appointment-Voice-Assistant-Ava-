@@ -8,6 +8,7 @@ from transport.livekit_session_stream import register_audio_handlers,setup_audio
 from transport.conversation_handler import conversation_history
 
 from voice_io.tts_stream import PersistentTTS
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 load_dotenv(".env.local")
 

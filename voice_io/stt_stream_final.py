@@ -34,6 +34,7 @@ class STTConnection:
 
     async def on_message(self,message):
         # print("DEBUG: raw message type:", getattr(message, "type", None), getattr(message, "event", None))
+        # print("on_message fired:", getattr(message, "type", None), getattr(message, "event", None))
         if message.type=="TurnInfo" and message.transcript:
             if message.event=="Update":
                 print("You:", message.transcript)
@@ -47,7 +48,11 @@ class STTConnection:
         It does two things:
         i) registers the callback (on_message)
         ii) keeps reading incoming messages and calls on_message for each one.
+
         '''
+        # The SDK catches any exception raised inside on_message and emits it as ERROR,
+        # then stops listening. Without this handler that failure is completely silent.
+        self.connection.on(EventType.ERROR, lambda exc: print("STT listener error:", repr(exc)))
         self.connection.on(EventType.MESSAGE,self.on_message)
         await self.connection.start_listening()
 

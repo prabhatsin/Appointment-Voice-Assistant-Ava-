@@ -34,6 +34,7 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
         collected_text = ""
 
         async for chunk in stream:
+            # print("RAW CHUNK:", repr(chunk))
             delta = chunk.choices[0].delta
 
             if delta.tool_calls:
@@ -51,7 +52,7 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
             if delta.content:
                 collected_text += delta.content
                 yield delta.content   # stream text out immediately, chunk by chunk
-
+        print("tool_calls at end of stream:", tool_calls)
         if tool_calls:
             # Step 1: append the assistant turn that triggered the tool call(s)
             messages.append({

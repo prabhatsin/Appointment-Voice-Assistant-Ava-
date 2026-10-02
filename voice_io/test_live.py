@@ -1,32 +1,44 @@
 import asyncio
-from voice_io.stt_stream_final import stt_connect, stt_on_turn_end, send_audio, stt_register_listener, stt_close
-import sounddevice as sd
+from deepgram import AsyncDeepgramClient
+from deepgram.core.events import EventType
+from dotenv import load_dotenv
+load_dotenv()
 
 SAMPLE_RATE = 16000
 
-from dotenv import load_dotenv
-load_dotenv(".env.local")
-
-
-async def on_turn_end(transcript):
-    print("Final transcript:", transcript)
-
 async def main():
-    await stt_connect()
-    stt_on_turn_end(on_turn_end)
+    client = AsyncDeepgramClient(api_key="8d4099fcafbd9d5e09786bad0096b82cf3e32ad7")
+    ctx = client.listen.v2.connect(
+        model="flux-general-en",
+        encoding="linear16",
+        sample_rate=str(SAMPLE_RATE),
+    )
+    connection = await ctx.__aenter__()
+    print("Connected")
 
-    loop = asyncio.get_event_loop()
-    #Gets a reference to the currently running event loop
+    def on_any(message):
+        print("EVENT:", repr(message))
 
-    def audio_callback(indata, frames, time_info, status):
-        asyncio.run_coroutine_threadsafe(send_audio(indata.tobytes()), loop)
+    connection.on(EventType.MESSAGE, on_any)
+    connection.on(EventType.OPEN, lambda m: print("OPEN"))
+    connection.on(EventType.CLOSE, lambda m: print("CLOSE"))
+    connection.on(EventType.ERROR, lambda m: print("ERROR", m))
 
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", blocksize=1024, callback=audio_callback):
-        print("Speak now (Ctrl+C to stop)")
-        await stt_register_listener()
+    # Send 5 seconds of silence (zeros)
+    async def send_silence():
+        chunk = b'\x00' * (SAMPLE_RATE * 2 // 10)  # 100ms of silence
+        for _ in range(50):  # 50 * 100ms = 5 seconds
+            await connection.send_media(chunk)
+            await asyncio.sleep(0.1)
+        print("Done sending")
+
+    await asyncio.gather(
+        send_silence(),
+        connection.start_listening()
+    )
+    await ctx.__aexit__(None, None, None)
 
 asyncio.run(main())
-
 
 
 

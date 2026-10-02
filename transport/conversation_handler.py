@@ -5,6 +5,7 @@ from voice_io.vad_stream import detect_speech
 # from agent_core.main_loop_stream import get_agent_reply_stream
 from agent_core_cerebras.main_loop import get_agent_reply_stream
 import re
+import time
 SAMPLE_RATE=16000
 TTS_SAMPLE_RATE=24000 
 SPEECH_CONFIRM_CHUNKS = 3
@@ -18,6 +19,9 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
     async def handle_tts_audio(data:bytes):
         if active_turn["turn_id"]!=my_turn_id:
             return
+        if data and "t3" not in active_turn and "t2" in active_turn:  # [LATENCY INSTRUMENTATION - added by claude code]
+            active_turn["t3"] = time.perf_counter()  # [LATENCY INSTRUMENTATION - added by claude code]
+            print(f"[LATENCY] T3-T2 TTS first audio: {active_turn['t3']-active_turn['t2']:.3f}s")  # [LATENCY INSTRUMENTATION - added by claude code]
         samples_per_channel=len(data)//2
         frame=rtc.AudioFrame(
             data=data,
@@ -26,6 +30,10 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
             samples_per_channel=samples_per_channel
         )
         await audio_source.capture_frame(frame)
+        if "t4" not in active_turn and "t3" in active_turn and active_turn["turn_id"]==my_turn_id:  # [LATENCY INSTRUMENTATION - added by claude code]
+            active_turn["t4"] = time.perf_counter()  # [LATENCY INSTRUMENTATION - added by claude code]
+            print(f"[LATENCY] T4-T3 Frame published: {active_turn['t4']-active_turn['t3']:.3f}s")  # [LATENCY INSTRUMENTATION - added by claude code]
+            print(f"[LATENCY] T4-T0 TOTAL latency: {active_turn['t4']-active_turn['t0']:.3f}s")  # [LATENCY INSTRUMENTATION - added by claude code]
     tts.set_chunk_handler(handle_tts_audio)
     sentence_queue=asyncio.Queue()
 
@@ -34,13 +42,23 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
             sentence=await sentence_queue.get()
             if sentence is None:
                 break
+            if "t2" not in active_turn and "t1" in active_turn and active_turn["turn_id"]==my_turn_id:  # [LATENCY INSTRUMENTATION - added by claude code]
+                active_turn["t2"] = time.perf_counter()  # [LATENCY INSTRUMENTATION - added by claude code]
+                print(f"[LATENCY] T2-T1 Sentence to TTS: {active_turn['t2']-active_turn['t1']:.3f}s")  # [LATENCY INSTRUMENTATION - added by claude code]
             await tts.send(sentence)
         await tts.wait_until_done()
     speaker_task=asyncio.create_task(speak_sentences())
     active_turn["speaker_task"]=speaker_task
 
     buffer=""
+    first_chunk = True
     async for chunk in get_agent_reply_stream(transcript,conversation_history):
+        if first_chunk:
+            print(f"LLM first token: {time.perf_counter() - active_turn['t0']:.3f}s")
+            first_chunk = False
+        if chunk and "t1" not in active_turn and active_turn["turn_id"]==my_turn_id:  # [LATENCY INSTRUMENTATION - added by claude code]
+            active_turn["t1"] = time.perf_counter()  # [LATENCY INSTRUMENTATION - added by claude code]
+            print(f"[LATENCY] T1-T0 LLM first token: {active_turn['t1']-active_turn['t0']:.3f}s")  # [LATENCY INSTRUMENTATION - added by claude code]
         buffer+=chunk
         match = re.search(r'[.!?]\s', buffer)
         while match:
@@ -57,50 +75,58 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
     await speaker_task
 
 async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts):
-    stt=STTConnection()
-    await stt.stt_connect()
     active_turn={"process_task":None,"speaker_task":None,"turn_id":0}
- 
-    async def handle_turn(transcript):
-        # print("DEBUG: handle_turn called with:", transcript)
-        await cancel_active_turn(active_turn, audio_source, tts)
-        active_turn["process_task"]=asyncio.ensure_future(process_transcript(transcript,audio_source,tts,active_turn))
-    stt.stt_on_turn_end(handle_turn)
-    audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1)
-
-    #! Yes. forward_audio takes the user's mic audio from the LiveKit track and sends it to Deepgram STT.
-    # It also runs VAD on the same audio to detect barge-in.
-    async def forward_audio():
-        speech_streak=0
-        # print("forward_audio alive")
-        async for event in audio_stream:
+    # audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1)
+    while True:
+        stt=STTConnection()
+        await stt.stt_connect()
+        print("STT connected",time.perf_counter())  
+        audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1)
+        async def handle_turn(transcript):
+            active_turn["t0"]=time.perf_counter()
+            for k in ("t1", "t2", "t3", "t4"): active_turn.pop(k, None)  # [LATENCY INSTRUMENTATION - added by claude code]
+            # print("DEBUG: handle_turn called with:", transcript)
+            await cancel_active_turn(active_turn, audio_source, tts)
+            active_turn["process_task"]=asyncio.ensure_future(process_transcript(transcript,audio_source,tts,active_turn))
+        stt.stt_on_turn_end(handle_turn)
+        #! Yes. forward_audio takes the user's mic audio from the LiveKit track and sends it to Deepgram STT.
+        # It also runs VAD on the same audio to detect barge-in.
+        async def forward_audio():
+            speech_streak=0
+            first=True
             # print("forward_audio alive")
-            raw=bytes(event.frame.data)
-            await stt.send_audio(raw)
-            is_ava_speaking=active_turn["process_task"] and not active_turn["process_task"].done()
-            for is_speech in detect_speech(raw):
-                if is_speech and is_ava_speaking:
-                    speech_streak+=1
-                    if speech_streak >= SPEECH_CONFIRM_CHUNKS:
-                        await cancel_active_turn(active_turn,audio_source,tts)
-                        print("speech confirmed")
+            async for event in audio_stream:
+                # print("forward_audio alive")
+                if first:
+                    print("first frame received",time.perf_counter())   # confirm frames are flowing
+                    first = False
+                raw=bytes(event.frame.data)
+                await stt.send_audio(raw)
+                is_ava_speaking=active_turn["process_task"] and not active_turn["process_task"].done()
+                results = await asyncio.to_thread(detect_speech, raw)
+                for is_speech in results:
+                    if is_speech and is_ava_speaking:
+                        speech_streak+=1
+                        if speech_streak >= SPEECH_CONFIRM_CHUNKS:
+                            await cancel_active_turn(active_turn,audio_source,tts)
+                            print("speech confirmed")
+                            speech_streak=0
+                    else:
                         speech_streak=0
-                else:
-                    speech_streak=0
+        try:
+            async with asyncio.TaskGroup() as tg:
 
-    try:
-        async with asyncio.TaskGroup() as tg:
-
-            tg.create_task(forward_audio())
-            tg.create_task(stt.stt_register_listener())
-        # await asyncio.gather(forward_audio(),stt.stt_register_listener())
-    except* Exception as e:
-        #except* replaces except, because TaskGroup raises an ExceptionGroup, even for a single error. eg.exceptions is the tuple of actual errors.
-        print("Errors:",e.exceptions)
-    # finally: runs always, on success, error, or cancellation. That's where cleanup belongs.
-    finally:
-        await stt.stt_close()
-        #We kepth this inside finally because , we want this line to execute irrespective of whether error occured or not 
+                tg.create_task(forward_audio())
+                tg.create_task(stt.stt_register_listener())
+            # await asyncio.gather(forward_audio(),stt.stt_register_listener())
+        except* Exception as e:
+            #except* replaces except, because TaskGroup raises an ExceptionGroup, even for a single error. eg.exceptions is the tuple of actual errors.
+            print("Errors:",e.exceptions,time.perf_counter())
+            await asyncio.sleep(1)
+        # finally: runs always, on success, error, or cancellation. That's where cleanup belongs.
+        finally:
+            await stt.stt_close()
+            #We kepth this inside finally because , we want this line to execute irrespective of whether error occured or not 
 
 
 async def cancel_active_turn(active_turn,audio_source,tts):
