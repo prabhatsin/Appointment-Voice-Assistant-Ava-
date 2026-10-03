@@ -4,6 +4,8 @@ from voice_io.stt_stream_final import STTConnection
 from voice_io.vad_stream import detect_speech
 # from agent_core.main_loop_stream import get_agent_reply_stream
 from agent_core_cerebras.main_loop import get_agent_reply_stream
+# from agent_core_cerebras.main_loop_groq import get_agent_reply_stream
+
 import re
 import time
 SAMPLE_RATE=16000
@@ -19,6 +21,8 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
     async def handle_tts_audio(data:bytes):
         if active_turn["turn_id"]!=my_turn_id:
             return
+        if data:
+            active_turn["audio_started"]=True  # Ava is now audibly speaking, barge-in detection is armed
         if data and "t3" not in active_turn and "t2" in active_turn:  # [LATENCY INSTRUMENTATION - added by claude code]
             active_turn["t3"] = time.perf_counter()  # [LATENCY INSTRUMENTATION - added by claude code]
             print(f"[LATENCY] T3-T2 TTS first audio: {active_turn['t3']-active_turn['t2']:.3f}s")  # [LATENCY INSTRUMENTATION - added by claude code]
@@ -75,7 +79,7 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
     await speaker_task
 
 async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts):
-    active_turn={"process_task":None,"speaker_task":None,"turn_id":0}
+    active_turn={"process_task":None,"speaker_task":None,"turn_id":0,"audio_started":False}
     # audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1)
     while True:
         stt=STTConnection()
@@ -86,7 +90,20 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
             active_turn["t0"]=time.perf_counter()
             for k in ("t1", "t2", "t3", "t4"): active_turn.pop(k, None)  # [LATENCY INSTRUMENTATION - added by claude code]
             # print("DEBUG: handle_turn called with:", transcript)
-            await cancel_active_turn(active_turn, audio_source, tts)
+            prev_task=active_turn["process_task"]
+            if prev_task and not prev_task.done() and not active_turn["audio_started"]:
+                # User kept talking before Ava said anything: treat both parts as one utterance
+                # and drop the unanswered first part from history so the LLM sees a single user message.
+                transcript=f'{active_turn["transcript"]} {transcript}'
+                await cancel_active_turn(active_turn, audio_source, tts)
+                await asyncio.gather(prev_task, return_exceptions=True)
+                del conversation_history[active_turn["history_len"]:]
+                print("Merged continuation:", transcript)
+            else:
+                await cancel_active_turn(active_turn, audio_source, tts)
+            active_turn["transcript"]=transcript
+            active_turn["history_len"]=len(conversation_history)
+            active_turn["audio_started"]=False
             active_turn["process_task"]=asyncio.ensure_future(process_transcript(transcript,audio_source,tts,active_turn))
         stt.stt_on_turn_end(handle_turn)
         #! Yes. forward_audio takes the user's mic audio from the LiveKit track and sends it to Deepgram STT.
@@ -102,7 +119,8 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
                     first = False
                 raw=bytes(event.frame.data)
                 await stt.send_audio(raw)
-                is_ava_speaking=active_turn["process_task"] and not active_turn["process_task"].done()
+                # Only count as barge-in once Ava's audio has actually started, not while the LLM is still thinking
+                is_ava_speaking=active_turn["audio_started"] and active_turn["process_task"] and not active_turn["process_task"].done()
                 results = await asyncio.to_thread(detect_speech, raw)
                 for is_speech in results:
                     if is_speech and is_ava_speaking:

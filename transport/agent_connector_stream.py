@@ -52,16 +52,17 @@ async def main():
     audio_source = await setup_audio_output(room)
     register_audio_handlers(room, audio_source,tts)
 
-
+    if not room.remote_participants:
+        logging.info("No participants currently in the room on restart")
      # --- NEW: handle participants already present before the agent joined ---
     for identity, participant in room.remote_participants.items():
         logging.info(f"Found already-connected participant: {identity}")
         conversation_history.clear()
 
-    for track_pub in participant.track_publications.values():
-        if track_pub.track is not None and track_pub.track.kind == rtc.TrackKind.KIND_AUDIO:
-            logging.info(f"Manually starting conversation handler for existing track from {identity}")
-            asyncio.ensure_future(handle_conversation(track_pub.track, audio_source, tts))
+        for track_pub in participant.track_publications.values():
+            if track_pub.track is not None and track_pub.track.kind == rtc.TrackKind.KIND_AUDIO:
+                logging.info(f"Manually starting conversation handler for existing track from {identity}")
+                asyncio.ensure_future(handle_conversation(track_pub.track, audio_source, tts))
 
     # await asyncio.Event().wait()
     # --- NEW: handle Ctrl+C / kill ---

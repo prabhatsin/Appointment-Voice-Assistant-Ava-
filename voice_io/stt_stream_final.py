@@ -40,7 +40,7 @@ class STTConnection:
                 print("You:", message.transcript)
                 
             elif message.event=="EndOfTurn":
-                # print("You:", message.transcript)
+                print("EndofTurn", message.transcript)
                 if self.on_turn_end:
                     await self.on_turn_end(message.transcript)
 
