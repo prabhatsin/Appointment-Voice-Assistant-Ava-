@@ -37,7 +37,8 @@ class STTConnection:
         # print("on_message fired:", getattr(message, "type", None), getattr(message, "event", None))
         if message.type=="TurnInfo" and message.transcript:
             if message.event=="Update":
-                print("You:", message.transcript)
+                # print("You:", message.transcript)
+                pass
                 
             elif message.event=="EndOfTurn":
                 print("EndofTurn", message.transcript)
@@ -46,6 +47,7 @@ class STTConnection:
 
     #! This function receives the transcripts Deepgram sends back for what the user said.
     async def stt_register_listener(self):
+        print("listener started")
         '''
         It does two things:
         i) registers the callback (on_message)
@@ -57,6 +59,15 @@ class STTConnection:
         self.connection.on(EventType.ERROR, lambda exc: print("STT listener error:", repr(exc)))
         self.connection.on(EventType.MESSAGE,self.on_message)
         await self.connection.start_listening()
+
+
+    # async def send_keep_alive(self):
+    #     '''
+    #     It sends a {"type": "KeepAlive"} JSON message over the WebSocket to Deepgram, which 
+    #     tells Deepgram "this connection is still active, don't close it."
+    #     '''
+    #     if self.connection:
+    #         await self.connection._send({"type":"KeepAlive"})
 
     async def stt_close(self):
         if self.connection: # Guard :

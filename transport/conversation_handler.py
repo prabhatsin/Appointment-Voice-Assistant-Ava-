@@ -4,7 +4,7 @@ from voice_io.stt_stream_final import STTConnection
 from voice_io.vad_stream import detect_speech
 # from agent_core.main_loop_stream import get_agent_reply_stream
 from agent_core_cerebras.main_loop import get_agent_reply_stream
-# from agent_core_cerebras.main_loop_groq import get_agent_reply_stream
+from agent_core_cerebras.main_loop_groq import get_agent_reply_stream
 
 import re
 import time
@@ -81,11 +81,17 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
 async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts):
     active_turn={"process_task":None,"speaker_task":None,"turn_id":0,"audio_started":False}
     # audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1)
+    '''
+    # Reconnect loop: if the Deepgram STT connection drops (NET-0003, 1011, or any error),
+    # the except* catches it, sleeps 1 second, and this loop restarts from the top,
+    # creating a fresh STTConnection — runs until the participant leaves (CancelledError exits it)
+    '''
     while True:
         stt=STTConnection()
         await stt.stt_connect()
         print("STT connected",time.perf_counter())  
         audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1)
+
         async def handle_turn(transcript):
             active_turn["t0"]=time.perf_counter()
             for k in ("t1", "t2", "t3", "t4"): active_turn.pop(k, None)  # [LATENCY INSTRUMENTATION - added by claude code]
@@ -108,15 +114,24 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
         stt.stt_on_turn_end(handle_turn)
         #! Yes. forward_audio takes the user's mic audio from the LiveKit track and sends it to Deepgram STT.
         # It also runs VAD on the same audio to detect barge-in.
+
+        # async def keepalive():
+        #     '''
+        #     ## Sends a KeepAlive message to Deepgram every 8 seconds to prevent the STT socket from 
+        #     closing due to inactivity
+        #     '''
+        #     print("keepalive started")
+        #     while True:
+        #         await asyncio.sleep(8)
+        #         print("sending keepalive")
+        #         await stt.send_keep_alive()
+
         async def forward_audio():
+            print("forward_audio started")
             speech_streak=0
-            first=True
             # print("forward_audio alive")
             async for event in audio_stream:
                 # print("forward_audio alive")
-                if first:
-                    print("first frame received",time.perf_counter())   # confirm frames are flowing
-                    first = False
                 raw=bytes(event.frame.data)
                 await stt.send_audio(raw)
                 # Only count as barge-in once Ava's audio has actually started, not while the LLM is still thinking
@@ -136,6 +151,7 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
 
                 tg.create_task(forward_audio())
                 tg.create_task(stt.stt_register_listener())
+                # tg.create_task(keepalive())
             # await asyncio.gather(forward_audio(),stt.stt_register_listener())
         except* Exception as e:
             #except* replaces except, because TaskGroup raises an ExceptionGroup, even for a single error. eg.exceptions is the tuple of actual errors.
@@ -165,7 +181,8 @@ async def cancel_active_turn(active_turn,audio_source,tts):
 
 
 
-
+#TODO: 
+# ! when i press start conversation on the UI if there is no , server ruuning or active room ity should be able to connect , not like this , 
 
 
 

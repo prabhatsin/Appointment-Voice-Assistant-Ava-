@@ -70,3 +70,7 @@ Explore this pinned chat called question_answer_on_voice_ai
 Build mini vLLM (virtual Large Language Models)
 
 # -------------------------------------------------------------------------------------
+
+
+#! Explore the  STATE_MACHINE form the lecture well and themn implement it 
+

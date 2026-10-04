@@ -4,51 +4,7 @@ from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.speak.v1.types.speak_v1text import SpeakV1Text   # <-- add this import
 
-load_dotenv(".env.local")
-
-from deepgram import AsyncDeepgramClient
-from deepgram.core.events import EventType
-from deepgram.speak.v1.types.speak_v1text import SpeakV1Text
-import asyncio
-
-# class PersistentTTS:
-#     def __init__(self):
-#         self.client = AsyncDeepgramClient()
-#         self.connection = None
-#         self._current_done = None
-#         self._current_on_chunk = None
-
-#     async def connect(self):
-#         self._ctx = self.client.speak.v1.connect(
-#             model="aura-2-hera-en", encoding="linear16", sample_rate=24000,
-#         )
-#         self.connection = await self._ctx.__aenter__()
-
-#         async def on_message(message):
-#             if isinstance(message, bytes):
-#                 if self._current_on_chunk:
-#                     await self._current_on_chunk(message)
-#             elif type(message).__name__ == "SpeakV1Flushed":
-#                 if self._current_done:
-#                     self._current_done.set()
-
-#         self.connection.on(EventType.MESSAGE, on_message)
-#         self._listen_task = asyncio.create_task(self.connection.start_listening())
-
-#     async def speak(self, text: str, on_chunk):
-#         self._current_on_chunk = on_chunk
-#         self._current_done = asyncio.Event()
-
-#         await self.connection.send_text(SpeakV1Text(text=text))
-#         await self.connection.send_flush()
-#         await self._current_done.wait()
-
-#     async def close(self):
-#         self._listen_task.cancel()
-#         await self._ctx.__aexit__(None, None, None)
-
-
-
+# load_dotenv(".env.local")
 class PersistentTTS:
     def __init__(self):
         self.client = AsyncDeepgramClient()
@@ -96,3 +52,8 @@ class PersistentTTS:
     async def close(self):
         self._listen_task.cancel()
         await self._ctx.__aexit__(None, None, None)
+
+
+#TODO: Understand this well and then write 
+
+#! Why this v1 thing here but not in , STT part , ?? 

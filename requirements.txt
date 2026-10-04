@@ -6,3 +6,6 @@ scipy
 sounddevice
 silero-vad
 cerebras_cloud_sdk
+deepgram-sdk
+fastapi
+groq
