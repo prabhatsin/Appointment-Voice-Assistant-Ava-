@@ -15,12 +15,22 @@ def check_availability(date: str) -> dict:
     slots = store.check_availability(date)
     return {"available_slots": slots}
 
+# I am writing this because as a precaution so model shouldnt use madeup names the way groq(openai/gpt-oss-20b) did
+PLACEHOLDER_NAMES = {"user", "guest", "unknown", "customer", "n/a", "na", "none", "anonymous", "name"}
 def book_slot(date: str, time: str, name: str) -> dict:
     '''
     Tries to book a slot via the store. If the store raises an error
     (invalid time, already booked), catch it and return a clean error
     dict instead of letting the exception crash the agent loop.
     '''
+    cleaned = (name or "").strip()
+    if len(cleaned) < 2 or cleaned.lower() in PLACEHOLDER_NAMES:
+        return {
+            "status": "error",
+            "message": "Name missing. Ask the user for their real name before booking."
+        }
+
+
     try:
         booking = store.book_slot(date, time, name)
         return {

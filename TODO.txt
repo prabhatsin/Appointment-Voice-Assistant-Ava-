@@ -22,7 +22,6 @@ pauses (partial fix: raised SILENCE_FRAMES_TO_STOP; real fix: add semantic end-o
 
 fix -> feeding into smarter turn-detection than just silence duration
 
-
 2. No barge-in — talking while Ava speaks doesn't interrupt her, and audio frames are dropped during 
 that time (fix: asyncio.create_task() instead of await in the loop, to stop losing frames; 
 true interruption is a further stretch goal).
@@ -63,7 +62,6 @@ Explore this pinned chat called question_answer_on_voice_ai
 
 
 
-
 # ---------------------------------------------------------------------------------
 # ! NEXR PROJECT ...............................
 
@@ -74,3 +72,11 @@ Build mini vLLM (virtual Large Language Models)
 
 #! Explore the  STATE_MACHINE form the lecture well and themn implement it 
 
+# What is Word_Error_rate , ?? in STT , voice 
+
+# Before this project ends completely Build a a Portfolio for self , reflecting the Projects 
+
+# Integrate the memory which also helps in benchmarking, 
+ jaise jaise conversation aati jaye it sould feed the data like altency p50, 95.... in the  db ,
+ and caclulate them on the rollimng basis and , if 
+ isko dashboard banao , for admin access 
