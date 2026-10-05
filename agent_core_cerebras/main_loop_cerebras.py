@@ -6,7 +6,7 @@ from agent_core.tool_schema import (
     reschedule_function
 )
 from agent_core.tool_registry import tool_registry
-from agent_core.system_prompt import SYSTEM_PROMPT
+from agent_core.system_prompt import build_system_prompt
 import asyncio
 load_dotenv()
 client = AsyncCerebras()
@@ -17,11 +17,27 @@ tools = [
     {"type": "function", "function": reschedule_function},
 ]
 
+def tool_ok(result) -> bool:
+    if isinstance(result, dict):
+        return not result.get("error") and result.get("status") != "failed"
+    if isinstance(result, str):
+        return not result.lower().startswith(("error", "fail"))
+    return True
+
 async def get_agent_reply_stream(input_msg: str, messages: list):
     '''Same logic as get_agent_reply, but yields text chunks as they're generated instead of returning one block.'''
-    if not messages:
-        messages.append({"role": "system", "content": SYSTEM_PROMPT})
+    
+    prompt = build_system_prompt()
+    if messages:
+        # Non-empty list: overwrite messages[0] with a fresh prompt, so the date stays current.
+        messages[0] = {"role": "system", "content": prompt}
+    else:
+        messages.append({"role": "system", "content": prompt})
+
     messages.append({"role": "user", "content": input_msg})
+
+
+    tools_succeeded-set()
 
     while True:
         stream = await client.chat.completions.create(
@@ -76,10 +92,14 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
             # Step 2 & 3: execute each tool call, append its result
             for tc in tool_calls.values():
                 tool_name = tool_registry[tc["name"]]
-                args = json.loads(tc["arguments"])
-                # result = tool_name(**args) # Works for the demo data 
-                result = await asyncio.to_thread(tool_name, **args)
-
+                try:
+                    args = json.loads(tc["arguments"])
+                    # result = tool_name(**args) # Works for the demo data 
+                    result = await asyncio.to_thread(tool_name, **args)
+                    if tool_ok(result):
+                        tools_succeeded.add(tc["name"])
+                except Exception as e:
+                    result ={"error":str(e)}
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],

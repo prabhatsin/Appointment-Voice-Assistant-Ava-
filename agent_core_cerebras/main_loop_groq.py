@@ -26,17 +26,12 @@ tools = [
 
 
 async def get_agent_reply_stream(input_msg: str, messages: list):
-
-    if not messages:
-        messages.append({
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        })
-
-    messages.append({
-        "role": "user",
-        "content": input_msg
-    })
+    prompt = build_system_prompt()
+    if messages:
+        # Non-empty list: overwrite messages[0] with a fresh prompt, so the date stays current.
+        messages[0] = {"role": "system", "content": prompt}
+    else:
+        messages.append({"role": "system", "content": prompt})
 
     while True:
 

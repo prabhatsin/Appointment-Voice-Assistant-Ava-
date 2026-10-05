@@ -16,7 +16,12 @@ class STTConnection:
         self.ctx=None
         self.connection=None
         self.on_turn_end=None
-        # self.SAMPLE_RATE=16000
+        self.connected=False # a yes/no flag saying whether the connection is alive right now.
+        self._running=False 
+        #a flag meaning "keep the listener alive". It's on while the conversation runs and off 
+        # when you close it, so the reconnect loop knows when to stop.
+        # internal to this class 
+
 
     async def stt_connect(self):
         client =AsyncDeepgramClient()
@@ -25,9 +30,17 @@ class STTConnection:
                                                 sample_rate=str(SAMPLE_RATE),
                                                 )
         self.connection=await self.ctx.__aenter__()
+        self.connected=True
 
     async def send_audio(self,data:bytes):
-        await self.connection.send_media(data)
+        if not self.connected:
+            return # drop audio while reconnecting 
+        try:
+            await self.connection.send_media(data)
+        except Exception:
+            self.connected=False # listener loop will reconnect
+
+
 
     def stt_on_turn_end(self,callback):
         self.on_turn_end=callback 
@@ -41,7 +54,7 @@ class STTConnection:
                 pass
                 
             elif message.event=="EndOfTurn":
-                print("EndofTurn", message.transcript)
+                print("EndofTurn",id(self) % 10000, getattr(message, "turn_index", None), message.transcript)
                 if self.on_turn_end:
                     await self.on_turn_end(message.transcript)
 
@@ -54,12 +67,55 @@ class STTConnection:
         ii) keeps reading incoming messages and calls on_message for each one.
 
         '''
-        # The SDK catches any exception raised inside on_message and emits it as ERROR,
-        # then stops listening. Without this handler that failure is completely silent.
-        self.connection.on(EventType.ERROR, lambda exc: print("STT listener error:", repr(exc)))
-        self.connection.on(EventType.MESSAGE,self.on_message)
-        await self.connection.start_listening()
+        self._running=True
+        while self._running:
+            try:
+                self.connection.on(EventType.ERROR, lambda exc: print("STT listener error:", repr(exc)))
+                # The SDK catches any exception raised inside on_message and emits it as ERROR,
+                # then stops listening. Without this handler that failure is completely silent.
+                self.connection.on(EventType.MESSAGE,self.on_message)
+                await self.connection.start_listening()
+            except Exception as e:
+                print("STT listener error:",repr(e))
+            #_running becomes False only when something else sets it, and that something is stt_close():
+            if not self._running:
+                break
+            await self._reconnect()
 
+
+    #! So there are two situations after start_listening() stops:
+    '''
+    So there are two situations after start_listening() stops:
+
+    1.Connection dropped: _running is still True. The if not self._running check passes through,
+    _reconnect() runs, and the loop starts over.
+
+    2.You closed it: stt_close() set _running = False. start_listening() also stops because the 
+    socket closed, so the code reaches if not self._running: break, which exits the loop instead of
+    reconnecting.
+
+    '''
+
+    async def _reconnect(self):
+        self.connected = False
+        # marks the connection as down, so send_audio stops sending into a dead socket.
+        for delay in (0.2, 0.5, 1, 2, 3):
+            #if the conversation was closed in the meantime, don't reconnect.
+            if not self._running:
+                
+                return
+            try:
+                await self.ctx.__aexit__(None, None, None) # cleans up the old, dead connection
+            except Exception:
+                pass
+            try:
+                await self.stt_connect() # opens a new connection and sets connected = True
+                print("STT reconnected")
+                return
+            except Exception as e:
+                print("STT reconnect failed:", repr(e))
+                await asyncio.sleep(delay)
+        raise RuntimeError("STT reconnect failed repeatedly")
 
     # async def send_keep_alive(self):
     #     '''
@@ -70,6 +126,8 @@ class STTConnection:
     #         await self.connection._send({"type":"KeepAlive"})
 
     async def stt_close(self):
+        self._running=False
+        self.connected=False
         if self.connection: # Guard :
             # we are useing this if self.ctx as a safeguard , in order to avoid error
             await self.ctx.__aexit__(None,None,None)

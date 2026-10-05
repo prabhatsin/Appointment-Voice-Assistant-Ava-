@@ -1,32 +1,34 @@
 
 check_availability_function = {
     "name": "check_availability",
-    "description": "Returns the list of available appointment time slots for a given date.",
+    "description": "The only source of truth for availability. Must be called before stating or refusing any slot for a date.",
     "parameters": {
         "type": "object",
         "properties": {
             "date": {
                 "type": "string",
-                "description": "The date to check availability for, in YYYY-MM-DD format, e.g. 2026-09-20."
+                "description": "The date to check, in YYYY-MM-DD format. Convert relative dates like today or tomorrow using the date in the system prompt."
             },
         },
         "required": ["date"]
     }
 }
 
+
+
 book_slot_function = {
     "name": "book_slot",
-    "description": "Books an appointment for a given date, time, and name. Fails if the slot is already taken.",
+    "description":"The only way to create a booking. Books an appointment for a given date, time, and name. Fails if the slot is already taken. Call only once date, time, and name are all known. Never claim a booking exists unless this tool returned success.",
     "parameters": {
         "type": "object",
         "properties": {
             "date": {
                 "type": "string",
-                "description": "The date to book, in YYYY-MM-DD format, e.g. 2026-09-20."
+                "description": "The date to book, in YYYY-MM-DD format. Convert relative dates using the date in the system prompt."
             },
             "time": {
                 "type": "string",
-                "description": "The time slot to book, in HH:MM 24-hour format, e.g. 15:00."
+                "description": "The time slot to book, in HH:MM 24-hour format."
             },
             "name": {
                 "type": "string",
@@ -37,20 +39,23 @@ book_slot_function = {
     }
 }
 
+
+# TODO:  The below Description will change a bit when we ll integrate a memory system in it 
 cancel_booking_function = {
     "name": "cancel_booking",
-    "description": "Cancels an existing appointment using its booking ID.",
+    "description": "The only way to cancel a booking. Requires the exact booking ID returned by book_slot. Never guess an ID.",
     "parameters": {
         "type": "object",
         "properties": {
             "booking_id": {
                 "type": "string",
-                "description": "The unique booking ID of the appointment to cancel, e.g. BK0001."
+                "description": "The exact booking ID returned by book_slot."
             },
         },
         "required": ["booking_id"]
     }
 }
+
 
 
 reschedule_function = {
