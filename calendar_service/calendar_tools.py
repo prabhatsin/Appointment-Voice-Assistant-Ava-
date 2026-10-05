@@ -51,6 +51,14 @@ def book_slot(date: str, time: str, name: str) -> dict:
     if len(cleaned) < 2 or cleaned.lower() in PLACEHOLDER_NAMES:
         return {"status": "error", "message": "Name missing. Ask the user for their real name before booking."}
 
+    try:
+        start = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
+    except ValueError:
+        return {"status": "error", "message": "Invalid date or time format. Use YYYY-MM-DD and HH:MM."}
+
+    if start <= datetime.now(TZ):
+        return {"status": "error", "message": "That time has already passed. Ask for a future time."}
+
     if time not in check_availability(date):
         return {"status": "error", "message": f"{time} on {date} is not available. Offer another slot."}
 
@@ -83,6 +91,12 @@ def cancel_booking(booking_id: str) -> dict:
 
 
 def reschedule(booking_id: str, new_date: str, new_time: str) -> dict:
+    
+    try:
+        start = datetime.strptime(f"{new_date} {new_time}", "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
+    except ValueError:
+        return {"status": "error", "message": "Invalid date or time format. Use YYYY-MM-DD and HH:MM."}
+
     if new_time not in check_availability(new_date):
         return {"status": "error", "message": f"{new_time} on {new_date} is not available. Offer another slot."}
 

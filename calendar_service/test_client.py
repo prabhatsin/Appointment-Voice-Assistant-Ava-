@@ -13,11 +13,21 @@
 
 
 from calendar_service.calendar_tools import cancel_booking
-print(cancel_booking("kv1g8266fjs4htkra1stqn7968"))
+print(cancel_booking("4ttm363igcu4gqphdmlj15qhck"))
 
 
-from calendar_service.calendar_tools import book_slot, reschedule
-b = book_slot("2026-10-07", "15:00", "Prabhat")
-print(b)
+# from calendar_service.calendar_tools import book_slot, reschedule
+# b = book_slot("2026-10-07", "15:00", "Prabhat")
+# print(b)
 
-print(reschedule(b["booking_id"], "2026-10-08", "11:00"))
+# print(reschedule(b["booking_id"], "2026-10-08", "11:00"))
+from calendar_service.client import get_service
+
+r = get_service().events().list(
+    calendarId="primary",
+    timeMin="2026-10-05T00:00:00+05:30",
+    timeMax="2026-10-06T00:00:00+05:30",
+    singleEvents=True,
+).execute()
+for e in r["items"]:
+    print(e["id"], e.get("summary"), e["start"].get("dateTime"), e.get("created"))

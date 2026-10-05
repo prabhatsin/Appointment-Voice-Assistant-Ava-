@@ -3,8 +3,8 @@ from livekit import rtc
 from voice_io.stt_stream_final import STTConnection
 from voice_io.vad_stream import detect_speech
 # from agent_core.main_loop_stream import get_agent_reply_stream
-# from agent_core_cerebras.main_loop import get_agent_reply_stream
-from agent_core_cerebras.main_loop_groq import get_agent_reply_stream
+from agent_core_cerebras.main_loop import get_agent_reply_stream
+# from agent_core_cerebras.main_loop_groq import get_agent_reply_stream
 
 import re
 import time

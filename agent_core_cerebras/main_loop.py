@@ -7,6 +7,7 @@ from agent_core.tool_schema import (
 )
 from agent_core.tool_registry import tool_registry
 from agent_core.system_prompt import SYSTEM_PROMPT
+import asyncio
 load_dotenv()
 client = AsyncCerebras()
 tools = [
@@ -76,7 +77,8 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
             for tc in tool_calls.values():
                 tool_name = tool_registry[tc["name"]]
                 args = json.loads(tc["arguments"])
-                result = tool_name(**args)
+                # result = tool_name(**args) # Works for the demo data 
+                result = await asyncio.to_thread(tool_name, **args)
 
                 messages.append({
                     "role": "tool",
@@ -88,3 +90,6 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
         else:
             messages.append({"role": "assistant", "content": collected_text})
             return   # done, no more tool calls
+
+
+

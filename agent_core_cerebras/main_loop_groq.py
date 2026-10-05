@@ -11,6 +11,7 @@ from agent_core.tool_schema import (
 )
 from agent_core.tool_registry import tool_registry
 from agent_core.system_prompt import SYSTEM_PROMPT
+import asyncio
 
 load_dotenv()
 
@@ -109,7 +110,8 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
 
                 args = json.loads(tc["arguments"])
 
-                result = tool(**args)
+                # result = tool(**args) # Works for the demo data
+                result = await asyncio.to_thread(tool, **args) # This one is for the calender api
 
                 messages.append({
                     "role": "tool",
