@@ -80,3 +80,10 @@ Build mini vLLM (virtual Large Language Models)
  jaise jaise conversation aati jaye it sould feed the data like altency p50, 95.... in the  db ,
  and caclulate them on the rollimng basis and , if 
  isko dashboard banao , for admin access 
+
+
+
+# Before Deploying the fully built , product , UI me have a button , if someone doesnt want 
+to login , there should be a option to use demo database (or data ) instead of google calender
+asyncio_python_understanding
+
