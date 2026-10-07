@@ -37,7 +37,7 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
     messages.append({"role": "user", "content": input_msg})
 
 
-    tools_succeeded-set()
+    tools_succeeded=set()
 
     while True:
         stream = await client.chat.completions.create(

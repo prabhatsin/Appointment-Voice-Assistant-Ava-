@@ -87,3 +87,5 @@ Build mini vLLM (virtual Large Language Models)
 to login , there should be a option to use demo database (or data ) instead of google calender
 asyncio_python_understanding
 
+#! ADD a tool to check the slots that are booked , also who booked , for whoom 
+and how to acess booking id from it ......

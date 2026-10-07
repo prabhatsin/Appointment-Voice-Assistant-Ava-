@@ -11,9 +11,19 @@ VAD_CHUNK_SAMPLES=512
 VAD_THRESHOLD=0.5
 SPEECH_CONFIRM_CHUNKS = 3
 
+# how many milliseconds of data if 512 in samples , 
+'''
+16000 sample -- 1 sec or 1000 miliseconds
+
+512 == (1/16 ) * 512 =32 ms 
+
+'''
+
+
 vad_model=load_silero_vad()
 
 vad_buffer=b""
+
 # Its a holding area for audio that has arrived but hasn't been analyzed yet.
 #? What problem does vad_buffer solve ?? 
 
@@ -47,8 +57,6 @@ since in deepgram settings we mentioned depth of 16 bits which is 2 bytes per sa
 
 '''
 
-
-
 def detect_speech(raw:bytes)->list[bool]:
     global vad_buffer
     vad_buffer+=raw
@@ -59,19 +67,17 @@ def detect_speech(raw:bytes)->list[bool]:
     while len(vad_buffer) >=chunk_bytes:
         chunk=vad_buffer[:chunk_bytes] # slices off the first 1024 bytes. That's the piece we'll give to the model.
         vad_buffer=vad_buffer[chunk_bytes:] # keeps everything after the first 1024 bytes and drops the part we just took.
-        
         samples=np.frombuffer(chunk,dtype=np.int16).astype(np.float32)/32768.0
-
         #np.frombuffer(chunk, dtype=np.int16): chunk is 1024 raw bytes with no structure. This tells numpy to read them as a sequence of 16-bit integers,
         # .astype(np.float32) converts those integers into decimal (floating-point) numbers.
         # / 32768.0 rescales them. A 16-bit integer ranges from -32768 to 32767, so dividing by 32768 puts every sample in the range -1.0 to 1.0.
-
         prob=vad_model(torch.from_numpy(samples),SAMPLE_RATE)
         # torch.from_numpy(samples) wraps the numpy array as a torch tensor.
         # vad_model(tensor, SAMPLE_RATE)     calls the model like a function. It looks at the 512 samples 
         # and returns a speech probability. It needs the sample rate because the model behaves differently at 8kHz and 16kHz, so you tell it which one this is.   
         #.item() turns the result into a plain Python float
-
         results.append(prob>VAD_THRESHOLD)
         # prob > VAD_THRESHOLD is a comparison that evaluates to True or False
     return results
+
+

@@ -1,4 +1,5 @@
 
+
 check_availability_function = {
     "name": "check_availability",
     "description": "The only source of truth for availability. Must be called before stating or refusing any slot for a date.",
@@ -13,8 +14,6 @@ check_availability_function = {
         "required": ["date"]
     }
 }
-
-
 
 book_slot_function = {
     "name": "book_slot",
@@ -39,7 +38,6 @@ book_slot_function = {
     }
 }
 
-
 # TODO:  The below Description will change a bit when we ll integrate a memory system in it 
 cancel_booking_function = {
     "name": "cancel_booking",
@@ -55,7 +53,6 @@ cancel_booking_function = {
         "required": ["booking_id"]
     }
 }
-
 
 
 reschedule_function = {

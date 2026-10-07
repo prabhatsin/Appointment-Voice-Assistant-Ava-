@@ -10,7 +10,8 @@ from agent_core.tool_schema import (
     reschedule_function,
 )
 from agent_core.tool_registry import tool_registry
-from agent_core.system_prompt import SYSTEM_PROMPT
+# from agent_core.system_prompt import SYSTEM_PROMPT
+from agent_core.system_prompt import build_system_prompt
 import asyncio
 
 load_dotenv()
@@ -32,6 +33,8 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
         messages[0] = {"role": "system", "content": prompt}
     else:
         messages.append({"role": "system", "content": prompt})
+
+    messages.append({"role": "user", "content": input_msg})
 
     while True:
 
@@ -100,14 +103,16 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
 
             # Execute tools
             for tc in tool_calls.values():
-
-                tool = tool_registry[tc["name"]]
-
-                args = json.loads(tc["arguments"])
-
-                # result = tool(**args) # Works for the demo data
-                result = await asyncio.to_thread(tool, **args) # This one is for the calender api
-
+                try:
+                    tool = tool_registry[tc["name"]]
+                    args = json.loads(tc["arguments"])
+                    # result = tool(**args) # Works for the demo data
+                    result = await asyncio.to_thread(tool, **args) # This one is for the calender api
+                except Exception as e:
+                    print(f"TOOL ERROR {tc['name']}: {e!r}")
+                    result ={"error":str(e)}
+                    
+                print(f"TOOL {tc['name']} {tc['arguments']} -> {result}")
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
