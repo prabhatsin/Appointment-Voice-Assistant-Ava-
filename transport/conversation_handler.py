@@ -5,6 +5,7 @@ from voice_io.vad_stream import detect_speech
 # from agent_core.main_loop_stream import get_agent_reply_stream
 # from agent_core_cerebras.main_loop_cerebras import get_agent_reply_stream
 from agent_core_cerebras.main_loop_groq import get_agent_reply_stream
+from voice_io.vad_session import VADStream  # OBSERVE MODE TESTING
 
 import re
 import time
@@ -86,7 +87,9 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
     # the except* catches it, sleeps 1 second, and this loop restarts from the top,
     # creating a fresh STTConnection — runs until the participant leaves (CancelledError exits it)
     '''
+    vad = await asyncio.to_thread(VADStream)   # loading the model blocks, so keep it off the event loop
     while True:
+        vad.reset()
         stt=STTConnection()
         await stt.stt_connect()
         print("STT connected",time.perf_counter())  
@@ -136,6 +139,9 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
                 await stt.send_audio(raw)
                 # Only count as barge-in once Ava's audio has actually started, not while the LLM is still thinking
                 is_ava_speaking=active_turn["audio_started"] and active_turn["process_task"] and not active_turn["process_task"].done()
+                for r in await vad.analyze_audio(raw):
+                    if r.event:
+                        print(f"[VAD ] {r.event.upper():5} prob={r.probability:.2f} ava_speaking={is_ava_speaking}")
                 results = await asyncio.to_thread(detect_speech, raw)
                 for is_speech in results:
                     if is_speech and is_ava_speaking:

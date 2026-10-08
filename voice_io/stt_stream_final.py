@@ -1,6 +1,6 @@
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
-
+import time
 #! When to use class based approach , and when to use normal function based approch , ?? 
 
 # One-line rule: use a class when several functions share state that belongs to one "thing" and you may need 
@@ -44,7 +44,8 @@ class STTConnection:
 
     def stt_on_turn_end(self,callback):
         self.on_turn_end=callback 
-
+    
+    
     async def on_message(self,message):
         # print("DEBUG: raw message type:", getattr(message, "type", None), getattr(message, "event", None))
         # print("on_message fired:", getattr(message, "type", None), getattr(message, "event", None))
@@ -54,7 +55,8 @@ class STTConnection:
                 pass
                 
             elif message.event=="EndOfTurn":
-                print("EndofTurn",id(self) % 10000, getattr(message, "turn_index", None), message.transcript)
+                # print(f"[{time.perf_counter():.3f}] EndofTurn",id(self) % 10000, getattr(message, "turn_index", None), message.transcript)
+                print(f"[STT ] turn ended: {message.transcript}")
                 if self.on_turn_end:
                     await self.on_turn_end(message.transcript)
 
