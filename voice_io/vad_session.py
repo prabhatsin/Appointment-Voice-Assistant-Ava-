@@ -4,11 +4,15 @@ import numpy as np
 import torch 
 #Is what that model runs on, so audio has to be converted into a torch tensor before it can be fed in
 from silero_vad import load_silero_vad
+from dataclasses import dataclass
+import asyncio
+
+
 
 SAMPLE_RATE = 16000
 WINDOW_SAMPLES = 512
 WINDOW_BYTES = WINDOW_SAMPLES * 2   # 16-bit audio = 2 bytes per sample
-SMOOTH_ALPHA=0.35 #?? 
+SMOOTH_ALPHA=0.35
 ACTIVATION = 0.5
 DEACTIVATION = ACTIVATION - 0.15    # # LiveKit's default exit level: 0.35 
 WINDOW_SEC=WINDOW_SAMPLES/SAMPLE_RATE # length of a window in seconds i.e 512 samples= 32 ms
@@ -16,6 +20,20 @@ MIN_SPEECH = 0.05    # speech in seconds needed in a row before START
 MIN_SILENCE = 0.55   # silence in seconds needed in a row before END
 
 # Each  sample is represented by the 16 bits(bit depth) i.e 2 bytes
+
+#? What VAD does. ??
+'''
+# It answers one question over and over: "is a human voice present in this tiny slice of audio?" It doesn't 
+know words.Silero is a small neural network that takes a slice of audio and outputs a probability from 0 to 1.
+'''
+# This is being used in the last method,analyze_frame
+@dataclass 
+class VADResult:
+    probability:float    # # smoothed probability for this window
+    speaking: bool       # inisde a speech segment after this window
+    event:str | None     # "start","end",or None
+    speech_time: float   # seconds of speech in a row
+    silence_time : float # seconds of silence in a row
 
 class VADStream:
 
@@ -30,24 +48,29 @@ class VADStream:
     def reset(self):
         self.model.reset_states() # forget the model's memory
         self.buffer=b""           # drop leftover audio
-        self.smoothed = None 
+        self.smoothed = None
+        self.speaking = False
+        self.speech_time = 0.0
+        self.silence_time = 0.0 
 
-        
-        
+    # These two lines used to supress the warning from the loading the silero model
+    import warnings
+    warnings.filterwarnings("ignore", message=".*torch.jit.load.*", category=FutureWarning)
     def get_probabilities(self, frame:bytes):
         # Frame	:A group of consecutive samples processed/transmitted together
-        # Here its that frame its just in bytes , 
+        # Here that frame is in bytes not number of samples, 
         '''
-        Add raw  audio bytes( with 16-bit bith depth), run the model on every complete 512-sample window, and 
+        Add raw  audio bytes( with 16-bit bit depth), run the model on every complete 512-sample window, and 
         return one speech probability per window.
         '''
         self.buffer+=frame
-        print(self.buffer)
+        # print(self.buffer)
         # print(frame)
         probs=[]
         while len(self.buffer)>=WINDOW_BYTES:
             chunk=self.buffer[:WINDOW_BYTES]
             self.buffer=self.buffer[WINDOW_BYTES:]
+            # convert raw bytes into numbers ,
             samples=np.frombuffer(chunk,dtype=np.int16).astype(np.float32)/32768.0
             prob=self.model(torch.from_numpy(samples),SAMPLE_RATE).item()
             # .item(): turns the model's one-number tensor into a plain Python float
@@ -93,10 +116,10 @@ class VADStream:
     # A state machine is a program that is always in exactly one state and moves to another only when a specific event happens.
     # The name detect_transition because :A transition is a state machine's word for moving from silent to speaking or back, and 
     #the return value ("start", "end" or None) is exactly that.
-    def detect_transition(self, is_speech:bool):
+    def detect_transition(self, speech_window:bool):
 
         """Track speech/silence runs. Returns "start", "end", or None."""
-        if is_speech:
+        if speech_window:
             # Speech window: speech run grows, silence run restarts.
             self.speech_time +=WINDOW_SEC
             self.silence_time=0.0
@@ -118,6 +141,27 @@ class VADStream:
                 return "end"
         return None
 
+    # Skipping step7 for now ,because : Ava sends every frame to STT, so it isn't needed.
+    #! step 8: join the stages and return one record per window
+    def analyze_frame(self,frame:bytes) -> list[VADResult]:
+        """It takes one frame and analyzes every window in it,runs through full chain"""
+        results=[]
+        for raw_prob in self.get_probabilities(frame):
+            prob=self.smooth(raw_prob)
+            speech_windows=self.is_speech(prob)
+            event=self.detect_transition(speech_windows) # may change the flag
+            results.append(VADResult(prob,self.speaking,event,self.speech_time,self.silence_time)) # record
+
+        return results
+
+    async def analyze_audio(self, frame: bytes) -> list[VADResult]:
+        """Run _analyze_frame in a worker thread so the event loop stays free."""
+        return await asyncio.to_thread(self.analyze_frame, frame)
+
+
+# v = VADStream()
+# r = v.analyze_frame(bytes(1024 * 3))
+# print([(round(x.probability, 3), x.speaking, x.event) for x in r])
 
 
 
