@@ -89,3 +89,8 @@ asyncio_python_understanding
 
 #! ADD a tool to check the slots that are booked , also who booked , for whoom 
 and how to acess booking id from it ......
+
+
+#! EXPLORE HOW and What Sarvam Does , that makes its api scalable ,?? for 10000 Users 
+
+# The 20 dollar one , ?? 

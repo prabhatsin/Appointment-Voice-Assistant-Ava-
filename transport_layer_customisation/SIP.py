@@ -1,6 +1,6 @@
 
 
-#?1.What is SIP ,and what is it used for ??
+#?1.What is SIP(Session Initiation Protocol) ,and what is it used for ??
 #! Note : Explore it later for the Phone call part , ...
 
 '''
@@ -75,7 +75,6 @@ Caller                 Ava / SIP server
   |<---------- 200 OK --------|
 
 '''
-
 #?4. SIP vs WebRTC vs WebSocket
 '''
 These technologies serve different roles.
