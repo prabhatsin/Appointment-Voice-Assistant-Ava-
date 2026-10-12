@@ -5,9 +5,7 @@ First, understand these four concepts:
 1. IP address — identifies a device or network interface.
 2. Port — identifies a particular service or application endpoint on a device.
 3. Client-server model — how two applications communicate.
-
 4. Packets — how data travels across a network.
-
 '''
 
 #? Packets

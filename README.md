@@ -204,6 +204,17 @@ Planned:
 - **Booking lookup by description.** Let a user say "cancel my 5 PM" and have the harness find the ID, so the model never handles raw IDs.
 - **Tool description update.** When memory lands, change the cancel and reschedule descriptions from "ID returned by book_slot" to "ID from a tool result or stored booking record".
 
+
+### 3. Notifications
+ 
+Goal: after a booking or cancellation succeeds, the user gets a confirmation outside the call.
+ 
+Planned:
+- **Send only after success.** The notification is triggered by a successful `book_slot`, `reschedule` or `cancel_booking` tool result, never by the model's own words.
+- **Channel.** To be decided (email, SMS or push).
+- **Content.** Name, date, time and the booking code.
+- **Delivery off the reply path.** Send it in a background task, so a slow or failed send never delays or breaks Ava's spoken answer.
+
 ## Notes
 
 - Built layer by layer, and each layer is tested alone before it is merged.
