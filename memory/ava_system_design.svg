@@ -1,0 +1,317 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1830" height="1710" viewBox="0 0 1830 1710">
+<defs>
+<marker id="ha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#3a4150"/></marker>
+<marker id="hb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5b44c8"/></marker>
+</defs>
+<rect width="1830" height="1710" rx="18" fill="#f6f7fa"/>
+<text x="40" y="50" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="26" font-weight="bold" fill="#1f2430">Ava · Voice Scheduling Agent — System Design</text>
+<text x="40" y="78" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="13.5" fill="#4b5263">Three independent processes (token server, browser UI, agent) meet in one LiveKit room. Inside the agent: audio → STT turn → LLM loop ⇄ calendar tools → sentences → TTS → audio.</text>
+<rect x="40" y="118" width="250" height="96" rx="12" fill="#f0f0f3" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="54.0" y="154.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">User · Browser</text>
+<text x="54.0" y="171.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#4b5263" text-anchor="start">mic + speaker</text>
+<text x="54.0" y="187.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Talks to Ava, hears replies</text>
+<rect x="415" y="118" width="250" height="96" rx="12" fill="#dff0f8" stroke="#1a8ab5" stroke-width="1.8"/>
+<text x="429.0" y="146.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Browser UI</text>
+<text x="429.0" y="163.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#1a8ab5" text-anchor="start">frontend/src/App.jsx</text>
+<text x="429.0" y="180.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">React + livekit-client; Start/End,</text>
+<text x="429.0" y="194.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">orb shows speaking state</text>
+<circle cx="647" cy="136" r="10" fill="#1a8ab5"/>
+<text x="647.0" y="140.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#ffffff" text-anchor="middle">2</text>
+<rect x="790" y="118" width="250" height="96" rx="12" fill="#dff0f8" stroke="#1a8ab5" stroke-width="1.8"/>
+<text x="804.0" y="146.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Token Server</text>
+<text x="804.0" y="163.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#1a8ab5" text-anchor="start">transport/token_server.py</text>
+<text x="804.0" y="180.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">FastAPI GET /token; signs</text>
+<text x="804.0" y="194.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">LiveKit JWT for one room</text>
+<circle cx="1022" cy="136" r="10" fill="#1a8ab5"/>
+<text x="1022.0" y="140.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#ffffff" text-anchor="middle">1</text>
+<rect x="1165" y="118" width="250" height="96" rx="12" fill="#dff0f8" stroke="#1a8ab5" stroke-width="1.8"/>
+<text x="1179.0" y="139.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Agent Entry</text>
+<text x="1179.0" y="156.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#1a8ab5" text-anchor="start">transport/</text>
+<text x="1179.0" y="171.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#1a8ab5" text-anchor="start">agent_connector_stream.py</text>
+<text x="1179.0" y="187.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Joins room, opens TTS, registers</text>
+<text x="1179.0" y="202.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">handlers, clears history per user</text>
+<circle cx="1397" cy="136" r="10" fill="#1a8ab5"/>
+<text x="1397.0" y="140.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#ffffff" text-anchor="middle">3</text>
+<rect x="415" y="298" width="1000" height="96" rx="12" fill="#f0f0f3" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="429.0" y="334.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">LiveKit Cloud · room "ava-booking-room"</text>
+<text x="429.0" y="351.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#4b5263" text-anchor="start">WebRTC SFU (LIVEKIT_URL)</text>
+<text x="429.0" y="367.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Routes the user's mic track to the agent and Ava's voice track to the browser</text>
+<rect x="415" y="478" width="250" height="96" rx="12" fill="#dff0f8" stroke="#1a8ab5" stroke-width="1.8"/>
+<text x="429.0" y="506.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Room Session</text>
+<text x="429.0" y="523.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#1a8ab5" text-anchor="start">transport/livekit_session_stream.py</text>
+<text x="429.0" y="540.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">On track_subscribed: start a turn</text>
+<text x="429.0" y="554.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">loop; publishes ava-voice track</text>
+<rect x="790" y="478" width="250" height="276" rx="12" fill="#ebe8fb" stroke="#5b44c8" stroke-width="1.8"/>
+<text x="804.0" y="560.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Conversation Handler</text>
+<text x="804.0" y="577.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#5b44c8" text-anchor="start">transport/conversation_handler.py</text>
+<text x="804.0" y="594.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Per-user turn loop:</text>
+<text x="804.0" y="608.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">- forwards mic audio to STT + VAD</text>
+<text x="804.0" y="623.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">- merges a continued user turn</text>
+<text x="804.0" y="637.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">- splits LLM text into sentences</text>
+<text x="804.0" y="652.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">- cancels the turn on barge-in</text>
+<text x="804.0" y="666.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">- owns conversation_history</text>
+<text x="804.0" y="681.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">- restarts STT after errors</text>
+<rect x="1165" y="478" width="250" height="96" rx="12" fill="#fae3ea" stroke="#c0304f" stroke-width="1.8"/>
+<text x="1179.0" y="506.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Speech-to-Text</text>
+<text x="1179.0" y="523.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#c0304f" text-anchor="start">voice_io/stt_stream_final.py</text>
+<text x="1179.0" y="540.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">STTConnection: streams audio,</text>
+<text x="1179.0" y="554.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">fires on EndOfTurn, reconnects</text>
+<rect x="1540" y="478" width="250" height="96" rx="12" fill="#f0f0f3" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="1554.0" y="506.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Deepgram Flux</text>
+<text x="1554.0" y="523.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#4b5263" text-anchor="start">listen v2 · flux-general-en</text>
+<text x="1554.0" y="540.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Streaming STT with built-in</text>
+<text x="1554.0" y="554.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">end-of-turn detection</text>
+<rect x="415" y="658" width="250" height="96" rx="12" fill="#fae3ea" stroke="#c0304f" stroke-width="1.8"/>
+<text x="429.0" y="679.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Voice Activity (VAD)</text>
+<text x="429.0" y="696.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#c0304f" text-anchor="start">voice_io/vad_stream.py</text>
+<text x="429.0" y="711.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#c0304f" text-anchor="start">voice_io/vad_session.py</text>
+<text x="429.0" y="727.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Silero: barge-in check (3 chunks);</text>
+<text x="429.0" y="742.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">VADStream logs START/END only</text>
+<rect x="1165" y="658" width="250" height="96" rx="12" fill="#fae3ea" stroke="#c0304f" stroke-width="1.8"/>
+<text x="1179.0" y="686.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Text-to-Speech</text>
+<text x="1179.0" y="703.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#c0304f" text-anchor="start">voice_io/tts_stream.py</text>
+<text x="1179.0" y="720.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">PersistentTTS: one socket for the</text>
+<text x="1179.0" y="734.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">session; send, flush, clear</text>
+<rect x="1540" y="658" width="250" height="96" rx="12" fill="#f0f0f3" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="1554.0" y="686.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Deepgram Aura</text>
+<text x="1554.0" y="703.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#4b5263" text-anchor="start">speak v1 · aura-2-hera-en</text>
+<text x="1554.0" y="720.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Streaming TTS, linear16</text>
+<text x="1554.0" y="734.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">PCM at 24 kHz</text>
+<rect x="415" y="838" width="250" height="96" rx="12" fill="#ebe8fb" stroke="#5b44c8" stroke-width="1.8"/>
+<text x="429.0" y="859.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Prompt &amp; Tool Schemas</text>
+<text x="429.0" y="876.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#5b44c8" text-anchor="start">agent_core/system_prompt.py</text>
+<text x="429.0" y="891.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#5b44c8" text-anchor="start">agent_core/tool_schema.py</text>
+<text x="429.0" y="907.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Ava persona + today's date (IST);</text>
+<text x="429.0" y="922.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">4 JSON function schemas</text>
+<rect x="790" y="838" width="250" height="96" rx="12" fill="#ebe8fb" stroke="#5b44c8" stroke-width="1.8"/>
+<text x="804.0" y="859.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">LLM Agent Loop</text>
+<text x="804.0" y="876.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#5b44c8" text-anchor="start">agent_core_cerebras/</text>
+<text x="804.0" y="891.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#5b44c8" text-anchor="start">main_loop_cerebras.py</text>
+<text x="804.0" y="907.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Streams reply; on tool_calls runs</text>
+<text x="804.0" y="922.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">tools and loops until plain text</text>
+<rect x="1165" y="838" width="250" height="96" rx="12" fill="#f0f0f3" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="1179.0" y="866.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Cerebras Inference API</text>
+<text x="1179.0" y="883.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#4b5263" text-anchor="start">AsyncCerebras · qwen-3.8-27b</text>
+<text x="1179.0" y="900.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Chat completions with tools,</text>
+<text x="1179.0" y="914.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">streamed</text>
+<rect x="790" y="1018" width="250" height="96" rx="12" fill="#feeed5" stroke="#b8650a" stroke-width="1.8"/>
+<text x="804.0" y="1039.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Tool Executor Guard</text>
+<text x="804.0" y="1056.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#b8650a" text-anchor="start">agent_core_cerebras/</text>
+<text x="804.0" y="1071.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#b8650a" text-anchor="start">main_loop_cerebras.py</text>
+<text x="804.0" y="1087.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Parses args, runs tool off-loop,</text>
+<text x="804.0" y="1102.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">turns exceptions into {error}</text>
+<rect x="1165" y="1018" width="250" height="96" rx="12" fill="#e0f0e4" stroke="#2a8a4a" stroke-width="1.8"/>
+<text x="1179.0" y="1046.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Tool Registry</text>
+<text x="1179.0" y="1063.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#2a8a4a" text-anchor="start">agent_core/tool_registry.py</text>
+<text x="1179.0" y="1080.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Maps tool name to calendar</text>
+<text x="1179.0" y="1094.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">function</text>
+<rect x="1165" y="1198" width="250" height="96" rx="12" fill="#feeed5" stroke="#b8650a" stroke-width="1.8"/>
+<text x="1179.0" y="1226.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Booking Guards</text>
+<text x="1179.0" y="1243.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#b8650a" text-anchor="start">calendar_service/calendar_tools.py</text>
+<text x="1179.0" y="1260.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Rejects placeholder names, bad</text>
+<text x="1179.0" y="1274.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">formats, past or taken slots</text>
+<rect x="1165" y="1378" width="250" height="96" rx="12" fill="#e0f0e4" stroke="#2a8a4a" stroke-width="1.8"/>
+<text x="1179.0" y="1406.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Calendar Tools</text>
+<text x="1179.0" y="1423.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#2a8a4a" text-anchor="start">calendar_service/calendar_tools.py</text>
+<text x="1179.0" y="1440.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Free 60-min slots 10:00-19:00;</text>
+<text x="1179.0" y="1454.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">book, cancel, reschedule events</text>
+<rect x="1540" y="1378" width="250" height="276" rx="12" fill="#f0f0f3" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="1554.0" y="1496.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Google Calendar API</text>
+<text x="1554.0" y="1513.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#4b5263" text-anchor="start">calendar v3 · primary calendar</text>
+<text x="1554.0" y="1530.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Event list / insert / delete /</text>
+<text x="1554.0" y="1544.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">patch; OAuth token endpoint</text>
+<rect x="1165" y="1558" width="250" height="96" rx="12" fill="#e0f0e4" stroke="#2a8a4a" stroke-width="1.8"/>
+<text x="1179.0" y="1579.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Calendar Client</text>
+<text x="1179.0" y="1596.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#2a8a4a" text-anchor="start">calendar_service/client.py</text>
+<text x="1179.0" y="1611.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#2a8a4a" text-anchor="start">calendar_service/config.py</text>
+<text x="1179.0" y="1627.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Loads token.json, refreshes creds,</text>
+<text x="1179.0" y="1642.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">builds the Calendar v3 service</text>
+<rect x="790" y="1558" width="250" height="96" rx="12" fill="#e0f0e4" stroke="#2a8a4a" stroke-width="1.8"/>
+<text x="804.0" y="1586.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">OAuth Setup (one-time)</text>
+<text x="804.0" y="1603.8" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10.5" font-weight="normal" fill="#2a8a4a" text-anchor="start">calendar_service/calendar_auth.py</text>
+<text x="804.0" y="1620.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">Consent flow on :8080; writes</text>
+<text x="804.0" y="1634.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">secrets/token.json</text>
+<path d="M 292.0 150.0 L 413.0 150.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="304.8" y="132.5" width="95.3" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="352.5" y="143.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">speech, clicks</text>
+<path d="M 413.0 182.0 L 292.0 182.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="314.4" y="187.5" width="76.2" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="352.5" y="198.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">Ava's voice</text>
+<path d="M 667.0 150.0 L 788.0 150.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="692.6" y="132.5" width="69.8" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="727.5" y="143.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">GET /token</text>
+<path d="M 788.0 182.0 L 667.0 182.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="686.2" y="187.5" width="82.6" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="727.5" y="198.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">{token, url,</text>
+<text x="727.5" y="211.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">room}</text>
+<path d="M 1163.0 150.0 L 1042.0 150.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1048.5" y="132.5" width="108.1" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="143.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">generate_token()</text>
+<path d="M 1042.0 182.0 L 1163.0 182.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1070.8" y="187.5" width="63.4" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="198.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">agent JWT</text>
+<path d="M 518.0 216.0 L 518.0 296.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="424.1" y="242.8" width="88.9" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="510.0" y="253.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="end">connect (JWT)</text>
+<text x="510.0" y="266.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="end">+ mic track</text>
+<path d="M 562.0 296.0 L 562.0 216.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="567.0" y="242.8" width="63.4" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="570.0" y="253.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">Ava voice</text>
+<text x="570.0" y="266.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">track</text>
+<path d="M 1290.0 216.0 L 1290.0 296.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1295.0" y="242.8" width="114.5" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1298.0" y="253.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">join as ava-agent</text>
+<text x="1298.0" y="266.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">(JWT)</text>
+<path d="M 518.0 396.0 L 518.0 476.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="404.9" y="422.8" width="108.1" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="510.0" y="433.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="end">user audio track</text>
+<text x="510.0" y="446.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="end">(16 kHz mono)</text>
+<path d="M 562.0 476.0 L 562.0 396.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="567.0" y="422.8" width="101.7" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="570.0" y="433.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">ava-voice track</text>
+<text x="570.0" y="446.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">(24 kHz)</text>
+<path d="M 667.0 510.0 L 788.0 510.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="689.4" y="492.5" width="76.2" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="727.5" y="503.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">audio track</text>
+<path d="M 788.0 542.0 L 667.0 542.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="683.0" y="547.5" width="88.9" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="727.5" y="558.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">PCM frames</text>
+<text x="727.5" y="571.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">(AudioSource)</text>
+<path d="M 1042.0 510.0 L 1163.0 510.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1067.6" y="492.5" width="69.8" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="503.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">PCM 16 kHz</text>
+<path d="M 1163.0 542.0 L 1042.0 542.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1067.6" y="547.5" width="69.8" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="558.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">EndOfTurn</text>
+<text x="1102.5" y="571.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">transcript</text>
+<path d="M 1417.0 510.0 L 1538.0 510.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1439.4" y="479.0" width="76.2" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1477.5" y="489.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">audio</text>
+<text x="1477.5" y="503.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">(WebSocket)</text>
+<path d="M 1538.0 542.0 L 1417.0 542.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1449.0" y="547.5" width="57.0" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1477.5" y="558.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">TurnInfo</text>
+<text x="1477.5" y="571.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">events</text>
+<path d="M 788.0 690.0 L 667.0 690.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="692.6" y="672.5" width="69.8" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="727.5" y="683.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">PCM frames</text>
+<path d="M 667.0 722.0 L 788.0 722.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="689.4" y="727.5" width="76.2" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="727.5" y="738.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">speech flag</text>
+<text x="727.5" y="751.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">-&gt; barge-in</text>
+<path d="M 1042.0 690.0 L 1163.0 690.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1067.6" y="659.0" width="69.8" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="669.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">sentences,</text>
+<text x="1102.5" y="683.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">stop</text>
+<path d="M 1163.0 722.0 L 1042.0 722.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1067.6" y="727.5" width="69.8" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="738.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">PCM chunks</text>
+<text x="1102.5" y="751.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">24 kHz</text>
+<path d="M 1417.0 690.0 L 1538.0 690.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1436.2" y="659.0" width="82.6" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1477.5" y="669.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">text, Flush,</text>
+<text x="1477.5" y="683.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">Clear</text>
+<path d="M 1538.0 722.0 L 1417.0 722.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1439.4" y="727.5" width="76.2" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1477.5" y="738.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">audio bytes</text>
+<path d="M 893.0 756.0 L 893.0 836.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="818.2" y="782.8" width="69.8" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="885.0" y="793.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="end">transcript</text>
+<text x="885.0" y="806.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="end">+ history</text>
+<path d="M 937.0 836.0 L 937.0 756.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="942.0" y="782.8" width="88.9" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="945.0" y="793.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">streamed text</text>
+<text x="945.0" y="806.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">chunks</text>
+<path d="M 667.0 886.0 L 788.0 886.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="679.8" y="855.0" width="95.3" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="727.5" y="865.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">system prompt,</text>
+<text x="727.5" y="879.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">tool schemas</text>
+<path d="M 1042.0 870.0 L 1163.0 870.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1067.6" y="839.0" width="69.8" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="849.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">messages +</text>
+<text x="1102.5" y="863.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">tools</text>
+<path d="M 1163.0 902.0 L 1042.0 902.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1067.6" y="907.5" width="69.8" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="918.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">tokens /</text>
+<text x="1102.5" y="931.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">tool_calls</text>
+<path d="M 893.0 936.0 L 893.0 1016.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="805.4" y="962.8" width="82.6" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="885.0" y="973.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="end">tool call</text>
+<text x="885.0" y="986.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="end">(name, args)</text>
+<path d="M 937.0 1016.0 L 937.0 936.0" fill="none" stroke="#5b44c8" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#hb)"/>
+<rect x="942.0" y="962.8" width="88.9" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="945.0" y="973.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#5b44c8" text-anchor="start">tool result /</text>
+<text x="945.0" y="986.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#5b44c8" text-anchor="start">{error} JSON</text>
+<path d="M 1042.0 1066.0 L 1163.0 1066.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1067.6" y="1048.5" width="69.8" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="1059.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">name, args</text>
+<path d="M 1290.0 1116.0 L 1290.0 1196.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1295.0" y="1149.5" width="69.8" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1298.0" y="1160.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">fn(**args)</text>
+<path d="M 1290.0 1296.0 L 1290.0 1376.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1295.0" y="1329.5" width="95.3" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1298.0" y="1340.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">validated args</text>
+<path d="M 1163.0 1426.0 L 915.0 1426.0 L 915.0 1116.0" fill="none" stroke="#5b44c8" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#hb)"/>
+<path d="M 1163.0 1246.0 L 915.0 1246.0" fill="none" stroke="#5b44c8" stroke-width="2" stroke-dasharray="7 5"/>
+<circle cx="915.0" cy="1246.0" r="3.5" fill="#5b44c8"/>
+<rect x="989.1" y="1227.5" width="101.7" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1040.0" y="1238.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#5b44c8" text-anchor="middle">{status: error}</text>
+<rect x="979.6" y="1407.5" width="120.8" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1040.0" y="1418.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#5b44c8" text-anchor="middle">slots / booking_id</text>
+<path d="M 1417.0 1410.0 L 1538.0 1410.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1426.7" y="1379.0" width="101.7" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1477.5" y="1389.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">list / insert /</text>
+<text x="1477.5" y="1403.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">delete / patch</text>
+<path d="M 1538.0 1442.0 L 1417.0 1442.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1433.0" y="1447.5" width="88.9" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1477.5" y="1458.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">events JSON /</text>
+<text x="1477.5" y="1471.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">HttpError</text>
+<path d="M 1268.0 1476.0 L 1268.0 1556.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1174.1" y="1509.5" width="88.9" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1260.0" y="1520.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="end">get_service()</text>
+<path d="M 1312.0 1556.0 L 1312.0 1476.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1317.0" y="1502.8" width="69.8" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1320.0" y="1513.2" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">authorized</text>
+<text x="1320.0" y="1526.8" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="start">service</text>
+<path d="M 1417.0 1606.0 L 1538.0 1606.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1433.0" y="1588.5" width="88.9" height="15.5" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1477.5" y="1599.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">token refresh</text>
+<path d="M 1042.0 1606.0 L 1163.0 1606.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<rect x="1067.6" y="1575.0" width="69.8" height="29.0" rx="3" fill="#f6f7fa" opacity="0.92"/>
+<text x="1102.5" y="1585.5" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">secrets/</text>
+<text x="1102.5" y="1599.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11" font-weight="normal" fill="#4b5263" text-anchor="middle">token.json</text>
+<rect x="40" y="478" width="250" height="498" rx="12" fill="#ffffff" stroke="#d5d8e0" stroke-width="1.2"/>
+<text x="56.0" y="508.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Legend</text>
+<rect x="56" y="520" width="26" height="17" rx="4" fill="#dff0f8" stroke="#1a8ab5" stroke-width="1.6"/>
+<text x="92.0" y="533.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#1f2430" text-anchor="start">Transport &amp; entry points</text>
+<rect x="56" y="547" width="26" height="17" rx="4" fill="#ebe8fb" stroke="#5b44c8" stroke-width="1.6"/>
+<text x="92.0" y="560.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#1f2430" text-anchor="start">Agent loop &amp; reasoning</text>
+<rect x="56" y="574" width="26" height="17" rx="4" fill="#fae3ea" stroke="#c0304f" stroke-width="1.6"/>
+<text x="92.0" y="587.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#1f2430" text-anchor="start">Voice I/O (STT, TTS, VAD)</text>
+<rect x="56" y="601" width="26" height="17" rx="4" fill="#feeed5" stroke="#b8650a" stroke-width="1.6"/>
+<text x="92.0" y="614.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#1f2430" text-anchor="start">Safety &amp; validation</text>
+<rect x="56" y="628" width="26" height="17" rx="4" fill="#e0f0e4" stroke="#2a8a4a" stroke-width="1.6"/>
+<text x="92.0" y="641.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#1f2430" text-anchor="start">Tools &amp; integrations</text>
+<rect x="56" y="655" width="26" height="17" rx="4" fill="#f0f0f3" stroke="#6b7280" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="92.0" y="668.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#1f2430" text-anchor="start">External services &amp; user</text>
+<path d="M 56.0 700.0 L 86.0 700.0" fill="none" stroke="#3a4150" stroke-width="1.6" marker-end="url(#ha)"/>
+<text x="92.0" y="704.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#1f2430" text-anchor="start">request / data flow</text>
+<path d="M 56.0 725.0 L 86.0 725.0" fill="none" stroke="#5b44c8" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#hb)"/>
+<text x="92.0" y="729.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#5b44c8" text-anchor="start">results &amp; errors back</text>
+<text x="92.0" y="744.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="12" font-weight="normal" fill="#5b44c8" text-anchor="start">into the agent loop</text>
+<text x="56.0" y="776.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2430" text-anchor="start">Three entry points</text>
+<circle cx="66" cy="800" r="10" fill="#1a8ab5"/>
+<text x="66.0" y="804.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+<text x="84.0" y="804.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10" font-weight="normal" fill="#1f2430" text-anchor="start">uvicorn transport.token_server:app</text>
+<text x="84.0" y="818.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10" font-weight="normal" fill="#1f2430" text-anchor="start">  --reload</text>
+<circle cx="66" cy="842" r="10" fill="#1a8ab5"/>
+<text x="66.0" y="846.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+<text x="84.0" y="846.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10" font-weight="normal" fill="#1f2430" text-anchor="start">cd frontend &amp;&amp; npm run dev</text>
+<circle cx="66" cy="870" r="10" fill="#1a8ab5"/>
+<text x="66.0" y="874.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+<text x="84.0" y="874.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10" font-weight="normal" fill="#1f2430" text-anchor="start">python3 -m</text>
+<text x="84.0" y="888.0" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="10" font-weight="normal" fill="#1f2430" text-anchor="start">  transport.agent_connector_stream</text>
+<text x="56.0" y="922.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">All three meet only through</text>
+<text x="56.0" y="937.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">the LiveKit room; the agent also</text>
+<text x="56.0" y="952.0" font-family="Inter, 'DejaVu Sans', Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#4b5263" text-anchor="start">imports generate_token() directly.</text>
+</svg>
