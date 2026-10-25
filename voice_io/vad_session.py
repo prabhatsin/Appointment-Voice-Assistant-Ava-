@@ -11,7 +11,6 @@ import warnings
 # Suppress the FutureWarning from loading the silero model
 warnings.filterwarnings("ignore", message=".*torch.jit.load.*", category=FutureWarning)
 
-
 SAMPLE_RATE = 16000
 WINDOW_SAMPLES = 512
 WINDOW_BYTES = WINDOW_SAMPLES * 2   # 16-bit audio = 2 bytes per sample

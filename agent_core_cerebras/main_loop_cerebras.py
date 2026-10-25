@@ -7,6 +7,7 @@ from agent_core.tool_schema import (
 )
 from agent_core.tool_registry import tool_registry
 from agent_core.system_prompt import build_system_prompt
+from observability import metrics
 import asyncio
 load_dotenv()
 client = AsyncCerebras()
@@ -40,6 +41,7 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
     tools_succeeded=set()
 
     while True:
+        metrics.llm_request()
         stream = await client.chat.completions.create(
             model="qwen-3.8-27b",
             messages=messages,
@@ -54,25 +56,29 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
         tool_calls = {}          # index -> {"id":..., "name":..., "arguments": "..."}
         collected_text = ""
 
-        async for chunk in stream:
-            # print("RAW CHUNK:", repr(chunk))
-            delta = chunk.choices[0].delta
+        try:
+            async for chunk in stream:
+                # print("RAW CHUNK:", repr(chunk))
+                delta = chunk.choices[0].delta
 
-            if delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    if idx not in tool_calls:
-                        tool_calls[idx] = {"id": tc_delta.id, "name": "", "arguments": ""}
-                    if tc_delta.id:
-                        tool_calls[idx]["id"] = tc_delta.id
-                    if tc_delta.function.name:
-                        tool_calls[idx]["name"] += tc_delta.function.name
-                    if tc_delta.function.arguments:
-                        tool_calls[idx]["arguments"] += tc_delta.function.arguments
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tool_calls:
+                            tool_calls[idx] = {"id": tc_delta.id, "name": "", "arguments": ""}
+                        if tc_delta.id:
+                            tool_calls[idx]["id"] = tc_delta.id
+                        if tc_delta.function.name:
+                            tool_calls[idx]["name"] += tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            tool_calls[idx]["arguments"] += tc_delta.function.arguments
 
-            if delta.content:
-                collected_text += delta.content
-                yield delta.content   # stream text out immediately, chunk by chunk
+                if delta.content:
+                    metrics.mark("llm_first_token")
+                    collected_text += delta.content
+                    yield delta.content   # stream text out immediately, chunk by chunk
+        finally:
+            await stream.close()   # release the HTTP stream right away if the reply is cancelled
         # print("tool_calls at end of stream:", tool_calls)
         if tool_calls:
             # Step 1: append the assistant turn that triggered the tool call(s)
@@ -92,6 +98,7 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
             # Step 2 & 3: execute each tool call, append its result
             for tc in tool_calls.values():
                 tool_name = tool_registry[tc["name"]]
+                tool_timing = metrics.tool_start(tc["name"])
                 try:
                     args = json.loads(tc["arguments"])
                     # result = tool_name(**args) # Works for the demo data 
@@ -100,6 +107,7 @@ async def get_agent_reply_stream(input_msg: str, messages: list):
                         tools_succeeded.add(tc["name"])
                 except Exception as e:
                     result ={"error":str(e)}
+                metrics.tool_end(tool_timing)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],

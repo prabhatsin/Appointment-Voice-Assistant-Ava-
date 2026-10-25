@@ -1,6 +1,7 @@
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 import time
+import os
 #! When to use class based approach , and when to use normal function based approch , ?? 
 
 # One-line rule: use a class when several functions share state that belongs to one "thing" and you may need 
@@ -10,12 +11,26 @@ import time
 # and you need one copy per user.
 
 SAMPLE_RATE=16000 # We are defining it outside the class because its a a variable that stays constant throughout
+
+def _eot_threshold() -> float:
+    """Flux end-of-turn confidence (Deepgram range 0.5-1.0, Flux default 0.7). Override with FLUX_EOT_THRESHOLD."""
+    raw = os.getenv("FLUX_EOT_THRESHOLD", "0.8")
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f"FLUX_EOT_THRESHOLD={raw!r} is not a number") from None
+    if not 0.5 <= value <= 1.0:
+        raise ValueError(f"FLUX_EOT_THRESHOLD={value} must be between 0.5 and 1.0")
+    return value
+
+EOT_THRESHOLD=_eot_threshold()
 # import asyncio
 class STTConnection:
     def __init__(self):
         self.ctx=None
         self.connection=None
         self.on_turn_end=None
+        self.on_turn_start=None
         self.connected=False # a yes/no flag saying whether the connection is alive right now.
         self._running=False 
         #a flag meaning "keep the listener alive". It's on while the conversation runs and off 
@@ -28,6 +43,7 @@ class STTConnection:
         self.ctx=client.listen.v2.connect(model="flux-general-en",
                                                 encoding="linear16",
                                                 sample_rate=str(SAMPLE_RATE),
+                                                eot_threshold=str(EOT_THRESHOLD),
                                                 )
         self.connection=await self.ctx.__aenter__()
         self.connected=True
@@ -44,6 +60,9 @@ class STTConnection:
 
     def stt_on_turn_end(self,callback):
         self.on_turn_end=callback 
+
+    def stt_on_turn_start(self,callback):
+        self.on_turn_start=callback
     
     
     async def on_message(self,message):
@@ -53,10 +72,14 @@ class STTConnection:
             if message.event=="Update":
                 # print("You:", message.transcript)
                 pass
-                
+
+            elif message.event=="StartOfTurn":
+                if self.on_turn_start:
+                    await self.on_turn_start()
+
             elif message.event=="EndOfTurn":
                 # print(f"[{time.perf_counter():.3f}] EndofTurn",id(self) % 10000, getattr(message, "turn_index", None), message.transcript)
-                print(f"[STT ] turn ended: {message.transcript}")
+                print(f"[STT ] turn ended (eot_confidence={message.end_of_turn_confidence:.2f}, trigger={getattr(message,'trigger',None)}): {message.transcript}")
                 if self.on_turn_end:
                     await self.on_turn_end(message.transcript)
 

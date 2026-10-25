@@ -26,5 +26,3 @@ VAD → codecs (Opus/PCM) → resampling → WebRTC audio → STT streaming → 
 end-to-end latency.
 
 '''
-
-

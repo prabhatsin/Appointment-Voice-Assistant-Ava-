@@ -71,7 +71,14 @@ export default function App() {
       })
 
       await room.connect(url, token)
-      await room.localParticipant.setMicrophoneEnabled(true)
+      // Spelled out so a library upgrade can't silently drop them: echo cancellation keeps Ava's
+      // own voice out of the mic, which matters because barge-in listens while she speaks.
+      await room.localParticipant.setMicrophoneEnabled(true, {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        voiceIsolation: true,
+      })
 
       setStatus('connected')
       setAgentState('idle')

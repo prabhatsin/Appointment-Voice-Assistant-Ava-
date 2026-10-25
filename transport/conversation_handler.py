@@ -6,12 +6,27 @@ from agent_core_cerebras.main_loop_cerebras import get_agent_reply_stream
 # from agent_core_cerebras.main_loop_groq import get_agent_reply_stream
 from voice_io.vad_session import VADStream  # drives barge-in
 from voice_io.noise_filter import make_noise_filter
+from transport.token_server import ROOM_NAME
+from observability import metrics
 
 import re
 import time
+import os
 SAMPLE_RATE=16000
 TTS_SAMPLE_RATE=24000
-conversation_history=[]
+
+def _merge_window() -> float:
+    """Seconds after Ava's first audio in which new user speech counts as a continuation, not a new question."""
+    raw = os.getenv("TURN_MERGE_WINDOW", "2.0")
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f"TURN_MERGE_WINDOW={raw!r} is not a number") from None
+    if value < 0:
+        raise ValueError(f"TURN_MERGE_WINDOW={value} must be >= 0")
+    return value
+
+MERGE_WINDOW=_merge_window()
 
 
 async def process_transcript(transcript:str,audio_source,tts,active_turn):
@@ -19,9 +34,13 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
     if not transcript.strip():
         return
     my_turn_id = active_turn["turn_id"]
+    turn_metrics = metrics.current()   # TTS audio arrives on the TTS socket's task, so capture it here
     async def handle_tts_audio(data:bytes):
         if active_turn["turn_id"]!=my_turn_id:
             return
+        if data and not active_turn["audio_started"]:
+            active_turn["first_audio_t"]=time.perf_counter()
+            metrics.mark("tts_first_audio", turn_metrics)
         if data:
             active_turn["audio_started"]=True  # Ava is now audibly speaking, barge-in detection is armed
         if data and "t3" not in active_turn and "t2" in active_turn:  # [LATENCY INSTRUMENTATION - added by claude code]
@@ -45,34 +64,44 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
     async def speak_sentences():
         while True:
             sentence=await sentence_queue.get()
-            if sentence is None:
+            if sentence is None or active_turn["turn_id"]!=my_turn_id:   # never speak for a cancelled turn
                 break
             if "t2" not in active_turn and "t1" in active_turn and active_turn["turn_id"]==my_turn_id:  # [LATENCY INSTRUMENTATION - added by claude code]
                 active_turn["t2"] = time.perf_counter()  # [LATENCY INSTRUMENTATION - added by claude code]
                 print(f"[LATENCY] T2-T1 Sentence to TTS: {active_turn['t2']-active_turn['t1']:.3f}s")  # [LATENCY INSTRUMENTATION - added by claude code]
+            metrics.mark("tts_request", turn_metrics)
             await tts.send(sentence)
         await tts.wait_until_done()
+        # Generation is done, but up to ~1 s is still queued in the AudioSource; keep the reply (and the
+        # speaking flag) alive until it has played. cancel_active_turn's clear_queue() releases this wait.
+        await audio_source.wait_for_playout()
     speaker_task=asyncio.create_task(speak_sentences())
     active_turn["speaker_task"]=speaker_task
 
     buffer=""
     first_chunk = True
-    async for chunk in get_agent_reply_stream(transcript,conversation_history):
-        if first_chunk:
-            print(f"LLM first token: {time.perf_counter() - active_turn['t0']:.3f}s")
-            first_chunk = False
-        if chunk and "t1" not in active_turn and active_turn["turn_id"]==my_turn_id:  # [LATENCY INSTRUMENTATION - added by claude code]
-            active_turn["t1"] = time.perf_counter()  # [LATENCY INSTRUMENTATION - added by claude code]
-            print(f"[LATENCY] T1-T0 LLM first token: {active_turn['t1']-active_turn['t0']:.3f}s")  # [LATENCY INSTRUMENTATION - added by claude code]
-        buffer+=chunk
-        match = re.search(r'[.!?]\s', buffer)
-        while match:
-            sentence = buffer[:match.end()].strip()
-            buffer=buffer[match.end():]
-            if sentence:
-                print("Ava:", sentence)
-                await sentence_queue.put(sentence)
+    reply=get_agent_reply_stream(transcript,active_turn["history"])
+    try:
+        async for chunk in reply:
+            if active_turn["turn_id"]!=my_turn_id:   # cancelled: queue nothing more
+                return
+            if first_chunk:
+                print(f"LLM first token: {time.perf_counter() - active_turn['t0']:.3f}s")
+                first_chunk = False
+            if chunk and "t1" not in active_turn and active_turn["turn_id"]==my_turn_id:  # [LATENCY INSTRUMENTATION - added by claude code]
+                active_turn["t1"] = time.perf_counter()  # [LATENCY INSTRUMENTATION - added by claude code]
+                print(f"[LATENCY] T1-T0 LLM first token: {active_turn['t1']-active_turn['t0']:.3f}s")  # [LATENCY INSTRUMENTATION - added by claude code]
+            buffer+=chunk
             match = re.search(r'[.!?]\s', buffer)
+            while match:
+                sentence = buffer[:match.end()].strip()
+                buffer=buffer[match.end():]
+                if sentence:
+                    print("Ava:", sentence)
+                    await sentence_queue.put(sentence)
+                match = re.search(r'[.!?]\s', buffer)
+    finally:
+        await reply.aclose()   # close the LLM stream now, not whenever it's garbage collected
     if buffer.strip():
         print("Ava:", buffer.strip())
         await sentence_queue.put(buffer.strip())
@@ -80,13 +109,16 @@ async def process_transcript(transcript:str,audio_source,tts,active_turn):
     await speaker_task
 
 async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts):
-    active_turn={"process_task":None,"speaker_task":None,"turn_id":0,"audio_started":False}
+    # Per-handler state: each participant gets its own turn tracking and conversation history
+    active_turn={"process_task":None,"speaker_task":None,"turn_id":0,"audio_started":False,"history":[],"track_ended":False,
+                 "reply_cut":False,"first_audio_t":None,"speech_start_t":None}
     # audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1)
     '''
     # Reconnect loop: if the Deepgram STT connection drops (NET-0003, 1011, or any error),
     # the except* catches it, sleeps 1 second, and this loop restarts from the top,
     # creating a fresh STTConnection — runs until the participant leaves (CancelledError exits it)
     '''
+    call_metrics = metrics.start_call(track.sid, ROOM_NAME)
     vad = await asyncio.to_thread(VADStream)   # loading the model blocks, so keep it off the event loop
     print("[VAD ] config:", vad.cfg)
     while True:
@@ -98,28 +130,48 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
         print("[NOISE] filter:", type(noise_filter).__name__ if noise_filter else "off")
         audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1,noise_cancellation=noise_filter)
 
+        async def handle_turn_start():
+            # User started speaking again before Ava's first audio: the pending reply answers only the
+            # first fragment, so stop it now; the next EndOfTurn merges both parts (handle_turn).
+            active_turn["speech_start_t"]=time.perf_counter()
+            prev_task=active_turn["process_task"]
+            if prev_task and not prev_task.done() and not active_turn["audio_started"]:
+                print("[TURN] user resumed before Ava spoke: pending reply cancelled")
+                await cancel_active_turn(active_turn, audio_source, tts)
+
         async def handle_turn(transcript):
             active_turn["t0"]=time.perf_counter()
+            turn_metrics = metrics.start_turn(call_metrics)   # STT final transcript; the reply task inherits it
             for k in ("t1", "t2", "t3", "t4"): active_turn.pop(k, None)  # [LATENCY INSTRUMENTATION - added by claude code]
             # print("DEBUG: handle_turn called with:", transcript)
             prev_task=active_turn["process_task"]
-            if prev_task and not prev_task.done() and not active_turn["audio_started"]:
-                # User kept talking before Ava said anything: treat both parts as one utterance
-                # and drop the unanswered first part from history so the LLM sees a single user message.
-                transcript=f'{active_turn["transcript"]} {transcript}'
-                await cancel_active_turn(active_turn, audio_source, tts)
-                await asyncio.gather(prev_task, return_exceptions=True)
-                del conversation_history[active_turn["history_len"]:]
-                print("Merged continuation:", transcript)
+            speech_start=active_turn["speech_start_t"] or active_turn["t0"]
+            active_turn["speech_start_t"]=None
+            # Continuation of the same utterance: the user resumed before Ava's first audio (reply cut or still
+            # pending), or started speaking within MERGE_WINDOW of it (even if a short reply already finished).
+            reply_unfinished=prev_task is not None and (active_turn["reply_cut"] or not prev_task.done())
+            if active_turn["audio_started"]:
+                continuation=speech_start-active_turn["first_audio_t"]<=MERGE_WINDOW
             else:
-                await cancel_active_turn(active_turn, audio_source, tts)
+                continuation=reply_unfinished
+            await cancel_active_turn(active_turn, audio_source, tts)
+            if continuation:
+                # Treat both parts as one utterance and drop the first part (and its reply) from history
+                # so the LLM sees a single user message.
+                transcript=f'{active_turn["transcript"]} {transcript}'
+                del active_turn["history"][active_turn["history_len"]:]
+                print("Merged continuation:", transcript)
             active_turn["transcript"]=transcript
-            active_turn["history_len"]=len(conversation_history)
+            active_turn["history_len"]=len(active_turn["history"])
+            active_turn["reply_cut"]=False
+            active_turn["first_audio_t"]=None
             active_turn["audio_started"]=False
             active_turn["process_task"]=asyncio.ensure_future(process_transcript(transcript,audio_source,tts,active_turn))
+            metrics.track_reply(turn_metrics, active_turn["process_task"])   # saves the turn when the reply ends or is cut
             # process_task is never awaited, so print its errors here instead of losing them
             active_turn["process_task"].add_done_callback(lambda t: t.cancelled() or t.exception() is None or print("Reply task failed:", repr(t.exception())))
         stt.stt_on_turn_end(handle_turn)
+        stt.stt_on_turn_start(handle_turn_start)
         #! Yes. forward_audio takes the user's mic audio from the LiveKit track and sends it to Deepgram STT.
         # It also runs VAD on the same audio to detect barge-in.
 
@@ -145,6 +197,8 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
                 # Only count as barge-in once Ava's audio has actually started, not while the LLM is still thinking
                 is_ava_speaking=active_turn["audio_started"] and active_turn["process_task"] and not active_turn["process_task"].done()
                 for r in await vad.analyze_audio(raw):
+                    if r.event=="end":
+                        metrics.speech_ended(call_metrics, frame_t-r.silence_time)   # backdate to when speech stopped
                     if r.event:
                         print(f"[VAD ] {r.event.upper():5} prob={r.probability:.2f} rms={r.rms:.4f} ava_speaking={is_ava_speaking}")
                     # "start" fires once VADStream has seen MIN_SPEECH of smoothed speech in a row
@@ -153,6 +207,9 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
                         # speech_run: audio from onset to trigger; processing: wall time from frame arrival to cancel done
                         print(f"[BARGE-IN] speech confirmed: speech_run={r.speech_time*1000:.0f}ms processing={(time.perf_counter()-frame_t)*1000:.0f}ms")
                         is_ava_speaking=False
+            # The track ended (participant gone): stop the STT listener too, so the handler can exit
+            active_turn["track_ended"]=True
+            await stt.stt_close()
         try:
             async with asyncio.TaskGroup() as tg:
 
@@ -168,16 +225,48 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
         finally:
             await stt.stt_close()
             #We kepth this inside finally because , we want this line to execute irrespective of whether error occured or not 
+            await audio_stream.aclose()
+            if asyncio.current_task().cancelling():
+                # Handler stopped (participant left), not an STT reconnect: stop any reply still playing
+                await cancel_active_turn(active_turn,audio_source,tts)
+        if active_turn["track_ended"]:
+            print("Audio track ended, conversation handler exiting")
+            return
 
 
 async def cancel_active_turn(active_turn,audio_source,tts):
     active_turn["turn_id"] += 1
-    for key in ("process_task","speaker_task"):
-        task=active_turn[key]
-        if task:
-            task.cancel()
+    process_task=active_turn["process_task"]
+    cut=process_task is not None and not process_task.done()
+    tasks=[active_turn[key] for key in ("process_task","speaker_task") if active_turn[key]]
+    for task in tasks:
+        task.cancel()
     audio_source.clear_queue()
     await tts.stop()
+    # Wait for the cancelled reply to finish unwinding (LLM stream closed) after silencing it
+    await asyncio.gather(*tasks, return_exceptions=True)
+    if cut:
+        active_turn["reply_cut"]=True
+        drop_unheard_reply(active_turn["history"], active_turn["history_len"])
+
+
+def drop_unheard_reply(history, start):
+    """A reply was cut off: keep the user's message and finished tool calls/results (they really happened),
+    drop the assistant's text (it may not have been heard) and any tool call left without its result."""
+    turn=history[start:]
+    users=[i for i,msg in enumerate(turn) if msg["role"]=="user"]
+    if not users:
+        return
+    kept=turn[:users[0]+1]
+    i=users[0]+1
+    while i<len(turn) and turn[i].get("tool_calls"):
+        n=len(turn[i]["tool_calls"])
+        results=turn[i+1:i+1+n]
+        if len(results)<n or any(msg["role"]!="tool" for msg in results):
+            break
+        kept+=[{**turn[i],"content":None},*results]
+        i+=1+n
+    history[start:]=kept
 
 
 
