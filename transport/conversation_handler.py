@@ -1,18 +1,18 @@
 import asyncio
 from livekit import rtc
 from voice_io.stt_stream_final import STTConnection
-from voice_io.vad_stream import detect_speech
 # from agent_core.main_loop_stream import get_agent_reply_stream
-# from agent_core_cerebras.main_loop_cerebras import get_agent_reply_stream
-from agent_core_cerebras.main_loop_groq import get_agent_reply_stream
-from voice_io.vad_session import VADStream  # OBSERVE MODE TESTING
+from agent_core_cerebras.main_loop_cerebras import get_agent_reply_stream
+# from agent_core_cerebras.main_loop_groq import get_agent_reply_stream
+from voice_io.vad_session import VADStream  # drives barge-in
+from voice_io.noise_filter import make_noise_filter
 
 import re
 import time
 SAMPLE_RATE=16000
-TTS_SAMPLE_RATE=24000 
-SPEECH_CONFIRM_CHUNKS = 3
+TTS_SAMPLE_RATE=24000
 conversation_history=[]
+
 
 async def process_transcript(transcript:str,audio_source,tts,active_turn):
     # print("DEBUG: process_transcript started")
@@ -88,12 +88,15 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
     # creating a fresh STTConnection — runs until the participant leaves (CancelledError exits it)
     '''
     vad = await asyncio.to_thread(VADStream)   # loading the model blocks, so keep it off the event loop
+    print("[VAD ] config:", vad.cfg)
     while True:
         vad.reset()
         stt=STTConnection()
         await stt.stt_connect()
         print("STT connected",time.perf_counter())  
-        audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1)
+        noise_filter=make_noise_filter()   # None unless NOISE_FILTER is set
+        print("[NOISE] filter:", type(noise_filter).__name__ if noise_filter else "off")
+        audio_stream=rtc.AudioStream(track,sample_rate=SAMPLE_RATE,num_channels=1,noise_cancellation=noise_filter)
 
         async def handle_turn(transcript):
             active_turn["t0"]=time.perf_counter()
@@ -114,6 +117,8 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
             active_turn["history_len"]=len(conversation_history)
             active_turn["audio_started"]=False
             active_turn["process_task"]=asyncio.ensure_future(process_transcript(transcript,audio_source,tts,active_turn))
+            # process_task is never awaited, so print its errors here instead of losing them
+            active_turn["process_task"].add_done_callback(lambda t: t.cancelled() or t.exception() is None or print("Reply task failed:", repr(t.exception())))
         stt.stt_on_turn_end(handle_turn)
         #! Yes. forward_audio takes the user's mic audio from the LiveKit track and sends it to Deepgram STT.
         # It also runs VAD on the same audio to detect barge-in.
@@ -131,27 +136,23 @@ async def handle_conversation(track:rtc.Track,audio_source: rtc.AudioSource,tts)
 
         async def forward_audio():
             print("forward_audio started")
-            speech_streak=0
             # print("forward_audio alive")
             async for event in audio_stream:
                 # print("forward_audio alive")
+                frame_t=time.perf_counter()
                 raw=bytes(event.frame.data)
                 await stt.send_audio(raw)
                 # Only count as barge-in once Ava's audio has actually started, not while the LLM is still thinking
                 is_ava_speaking=active_turn["audio_started"] and active_turn["process_task"] and not active_turn["process_task"].done()
                 for r in await vad.analyze_audio(raw):
                     if r.event:
-                        print(f"[VAD ] {r.event.upper():5} prob={r.probability:.2f} ava_speaking={is_ava_speaking}")
-                results = await asyncio.to_thread(detect_speech, raw)
-                for is_speech in results:
-                    if is_speech and is_ava_speaking:
-                        speech_streak+=1
-                        if speech_streak >= SPEECH_CONFIRM_CHUNKS:
-                            await cancel_active_turn(active_turn,audio_source,tts)
-                            print("speech confirmed")
-                            speech_streak=0
-                    else:
-                        speech_streak=0
+                        print(f"[VAD ] {r.event.upper():5} prob={r.probability:.2f} rms={r.rms:.4f} ava_speaking={is_ava_speaking}")
+                    # "start" fires once VADStream has seen MIN_SPEECH of smoothed speech in a row
+                    if r.event=="start" and is_ava_speaking:
+                        await cancel_active_turn(active_turn,audio_source,tts)
+                        # speech_run: audio from onset to trigger; processing: wall time from frame arrival to cancel done
+                        print(f"[BARGE-IN] speech confirmed: speech_run={r.speech_time*1000:.0f}ms processing={(time.perf_counter()-frame_t)*1000:.0f}ms")
+                        is_ava_speaking=False
         try:
             async with asyncio.TaskGroup() as tg:
 

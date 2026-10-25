@@ -6,7 +6,10 @@ import torch
 from silero_vad import load_silero_vad
 from dataclasses import dataclass
 import asyncio
-
+import os
+import warnings
+# Suppress the FutureWarning from loading the silero model
+warnings.filterwarnings("ignore", message=".*torch.jit.load.*", category=FutureWarning)
 
 
 SAMPLE_RATE = 16000
@@ -14,12 +17,52 @@ WINDOW_SAMPLES = 512
 WINDOW_BYTES = WINDOW_SAMPLES * 2   # 16-bit audio = 2 bytes per sample
 SMOOTH_ALPHA=0.35
 ACTIVATION = 0.5
-DEACTIVATION = ACTIVATION - 0.15    # # LiveKit's default exit level: 0.35 
+DEACTIVATION_GAP = 0.15             # exit level sits this far below the entry level
+DEACTIVATION = ACTIVATION - DEACTIVATION_GAP    # # LiveKit's default exit level: 0.35
 WINDOW_SEC=WINDOW_SAMPLES/SAMPLE_RATE # length of a window in seconds i.e 512 samples= 32 ms
 MIN_SPEECH = 0.05    # speech in seconds needed in a row before START
 MIN_SILENCE = 0.55   # silence in seconds needed in a row before END
+MIN_VOLUME = 0.0     # RMS (0-1) a window needs before it can count as speech; 0 turns the gate off
 
 # Each  sample is represented by the 16 bits(bit depth) i.e 2 bytes
+
+# SAMPLE_RATE and WINDOW_SAMPLES stay fixed: Silero needs 512-sample windows at 16 kHz.
+@dataclass(frozen=True)
+class VADConfig:
+    activation: float = ACTIVATION      # smoothed prob needed to count as speech
+    deactivation: float = DEACTIVATION  # lower bar to keep counting as speech once speaking
+    smooth_alpha: float = SMOOTH_ALPHA  # weight of the previous smoothed value
+    min_speech: float = MIN_SPEECH      # seconds of speech in a row before START
+    min_silence: float = MIN_SILENCE    # seconds of silence in a row before END
+    min_volume: float = MIN_VOLUME      # RMS gate; for scale, 0.01 is about -40 dBFS
+
+    def __post_init__(self):
+        if not 0 <= self.deactivation < self.activation <= 1:
+            raise ValueError(f"VAD needs 0 <= deactivation < activation <= 1, got {self.deactivation}, {self.activation}")
+        if not 0 <= self.smooth_alpha < 1:
+            raise ValueError(f"VAD smooth_alpha must be in [0, 1), got {self.smooth_alpha}")
+        if self.min_speech < 0 or self.min_silence < 0:
+            raise ValueError("VAD min_speech and min_silence must be >= 0")
+        if not 0 <= self.min_volume <= 1:
+            raise ValueError(f"VAD min_volume is an RMS level and must be in [0, 1], got {self.min_volume}")
+
+    @classmethod
+    def from_env(cls):
+        """Defaults above, overridden by VAD_ACTIVATION, VAD_DEACTIVATION, VAD_SMOOTH_ALPHA,
+        VAD_MIN_SPEECH, VAD_MIN_SILENCE, VAD_MIN_VOLUME when set.
+        If only VAD_ACTIVATION is set, deactivation follows it at DEACTIVATION_GAP below (not below 0)."""
+        overrides = {}
+        for field in ("activation", "deactivation", "smooth_alpha", "min_speech", "min_silence", "min_volume"):
+            name = f"VAD_{field.upper()}"
+            value = os.environ.get(name)
+            if value is not None:
+                try:
+                    overrides[field] = float(value)
+                except ValueError:
+                    raise ValueError(f"{name}={value!r} is not a number") from None
+        if "activation" in overrides and "deactivation" not in overrides:
+            overrides["deactivation"] = max(0.0, overrides["activation"] - DEACTIVATION_GAP)
+        return cls(**overrides)
 
 #? What VAD does. ??
 '''
@@ -34,10 +77,13 @@ class VADResult:
     event:str | None     # "start","end",or None
     speech_time: float   # seconds of speech in a row
     silence_time : float # seconds of silence in a row
+    rms: float = 0.0     # loudness of this window, for tuning min_volume
+
 
 class VADStream:
 
-    def __init__(self):
+    def __init__(self, config: VADConfig | None = None):
+        self.cfg = config or VADConfig.from_env()
         self.model=load_silero_vad() # returns a fresh model each call.
         self.buffer=b""
         self.smoothed=None  # no previous value yet
@@ -51,17 +97,14 @@ class VADStream:
         self.smoothed = None
         self.speaking = False
         self.speech_time = 0.0
-        self.silence_time = 0.0 
+        self.silence_time = 0.0
 
-    # These two lines used to supress the warning from the loading the silero model
-    import warnings
-    warnings.filterwarnings("ignore", message=".*torch.jit.load.*", category=FutureWarning)
     def get_probabilities(self, frame:bytes):
         # Frame	:A group of consecutive samples processed/transmitted together
         # Here that frame is in bytes not number of samples, 
         '''
         Add raw  audio bytes( with 16-bit bit depth), run the model on every complete 512-sample window, and 
-        return one speech probability per window.
+        return (speech probability, RMS loudness) for each window.
         '''
         self.buffer+=frame
         # print(self.buffer)
@@ -74,7 +117,8 @@ class VADStream:
             samples=np.frombuffer(chunk,dtype=np.int16).astype(np.float32)/32768.0
             prob=self.model(torch.from_numpy(samples),SAMPLE_RATE).item()
             # .item(): turns the model's one-number tensor into a plain Python float
-            probs.append(prob)
+            rms=float(np.sqrt(np.mean(samples**2)))
+            probs.append((prob,rms))
         return probs
     
     #! Step 4: Smoothing
@@ -85,7 +129,7 @@ class VADStream:
             # None at the start: with no history, the first value is used as it is, which is what LiveKit's filter does.
             self.smoothed=prob
         else:
-            self.smoothed = SMOOTH_ALPHA*self.smoothed  + (1-SMOOTH_ALPHA)*prob
+            self.smoothed = self.cfg.smooth_alpha*self.smoothed  + (1-self.cfg.smooth_alpha)*prob
         return self.smoothed
         
     #!Step 5: Hysteresis
@@ -98,13 +142,13 @@ class VADStream:
         # The codition to start
         # Strong signal: at or above the entry bar, it's speech.
         # This works in either state, silent or speaking.(i.e pahle se bol rhe hai or bolna start kiya in both case)
-        if prob>= ACTIVATION:
+        if prob>= self.cfg.activation:
             return True
         # Weak signal (below 0.5): only counts if we're already inside a
         # speech segment and the value hasn't dropped below the exit bar (0.35).
         # self.speaking is False until detect_transition fires "start", so
         # this branch can only return True after a start has happened.
-        if self.speaking and prob > DEACTIVATION:
+        if self.speaking and prob > self.cfg.deactivation:
             return True
 
         # Everything else is silence: too weak to start speech, or too
@@ -125,7 +169,7 @@ class VADStream:
             self.silence_time=0.0
             # Not speaking yet, but 0.05 s of speech in a row: START.
             # (The "not speaking" check stops repeated STARTs mid-sentence.)
-            if not self.speaking and self.speech_time>=MIN_SPEECH:
+            if not self.speaking and self.speech_time>=self.cfg.min_speech:
                 self.speaking=True
                 return "start"
 
@@ -136,7 +180,7 @@ class VADStream:
             self.speech_time=0.0
             # Was speaking, but 0.55 s of silence in a row: END.
             # (The "speaking" check stops repeated ENDs during long silence.)
-            if self.speaking and self.silence_time >= MIN_SILENCE:
+            if self.speaking and self.silence_time >= self.cfg.min_silence:
                 self.speaking=False
                 return "end"
         return None
@@ -146,11 +190,13 @@ class VADStream:
     def analyze_frame(self,frame:bytes) -> list[VADResult]:
         """It takes one frame and analyzes every window in it,runs through full chain"""
         results=[]
-        for raw_prob in self.get_probabilities(frame):
+        for raw_prob,rms in self.get_probabilities(frame):
+            if rms < self.cfg.min_volume:
+                raw_prob=0.0   # too quiet to be the user, whatever the model thinks
             prob=self.smooth(raw_prob)
             speech_windows=self.is_speech(prob)
             event=self.detect_transition(speech_windows) # may change the flag
-            results.append(VADResult(prob,self.speaking,event,self.speech_time,self.silence_time)) # record
+            results.append(VADResult(prob,self.speaking,event,self.speech_time,self.silence_time,rms)) # record
 
         return results
 
